@@ -600,6 +600,25 @@ def _drain_incoming_messages(
                     pass
 
 
+_TEXT_TOOL_CALL_RE = None
+
+def _has_text_tool_calls(content: str) -> bool:
+    global _TEXT_TOOL_CALL_RE
+    if _TEXT_TOOL_CALL_RE is None:
+        import re
+        _TEXT_TOOL_CALL_RE = re.compile(
+            r'\b(?:read_file|repo_read|repo_list|drive_read|drive_write|run_shell|'
+            r'repo_write_commit|write_to_file|replace_file_content|web_search|'
+            r'browse_page|browser_action|analyze_code|update_scratchpad|'
+            r'update_identity|send_owner_message|schedule_task|chat_history|'
+            r'knowledge_read|knowledge_write|knowledge_list|codebase_digest|'
+            r'archive_version|request_restart|switch_model|compact_context)'
+            r'\s*\{',
+            re.IGNORECASE
+        )
+    return bool(_TEXT_TOOL_CALL_RE.search(content or ""))
+
+
 def run_llm_loop(
     messages: List[Dict[str, Any]],
     tools: ToolRegistry,
@@ -756,8 +775,21 @@ def run_llm_loop(
 
             tool_calls = msg.get("tool_calls") or []
             content = msg.get("content")
-            # No tool calls — final response
+            # No tool calls — final response (or text-encoded tool calls detection)
             if not tool_calls:
+                if content and _has_text_tool_calls(content):
+                    messages.append({"role": "assistant", "content": content})
+                    messages.append({
+                        "role": "system",
+                        "content": (
+                            "[TOOL_CALL_FORMAT_ERROR] You wrote tool calls as plain text instead of "
+                            "using the API tool_calls mechanism. Do not write tool names with JSON "
+                            "in your message text. Use actual tool_calls to invoke tools. "
+                            "Re-invoke the tools you intended to call."
+                        )
+                    })
+                    emit_progress("Re-prompting: model wrote tool calls as text")
+                    continue
                 return _handle_text_response(content, llm_trace, accumulated_usage)
 
             # Process tool calls
@@ -977,15 +1009,6 @@ def _process_tool_results(
             "name": fn_name,
             "content": truncated_result
         })
-
-        if not is_error and len(truncated_result) > 200:
-            messages.append({
-                "role": "system",
-                "content": (
-                    f"[TOOL_OK] '{fn_name}' returned {len(truncated_result)} chars. "
-                    f"Read the tool result above. Do not claim the tool failed or returned only metadata."
-                )
-            })
 
         # Append to LLM trace
         llm_trace["tool_calls"].append({
