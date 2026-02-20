@@ -79,7 +79,7 @@ class ToolEntry:
 CORE_TOOL_NAMES = {
     "repo_read", "repo_list", "repo_write_commit", "repo_commit_push",
     "drive_read", "drive_list", "drive_write",
-    "run_shell", "claude_code_edit",
+    "run_shell",
     "git_status", "git_diff",
     "schedule_task", "wait_for_task", "get_task_result",
     "update_scratchpad", "update_identity",
@@ -88,6 +88,10 @@ CORE_TOOL_NAMES = {
     "request_restart", "promote_to_stable",
     "knowledge_read", "knowledge_write",
     "browse_page", "browser_action", "analyze_screenshot",
+    "sequential_thinking", "analyze_code", "json_edit", "web_api",
+    "read_file", "write_file", "edit_file", "edit_file_by_lines",
+    "multi_edit_file", "delete_file", "move_file", "list_directory",
+    "get_file_info", "search_files", "web_fetch",
 }
 
 

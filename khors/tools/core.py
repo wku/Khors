@@ -321,6 +321,80 @@ def _forward_to_worker(ctx: ToolContext, task_id: str, message: str) -> str:
 
 
 # ---------------------------------------------------------------------------
+# json_edit
+# ---------------------------------------------------------------------------
+
+def _json_edit(ctx: ToolContext, operation: str, file_path: str, json_path: str = None, value: Any = None, pretty_print: bool = True) -> str:
+    """Precise JSON editing using JSONPath. Operations: view, set, add, remove."""
+    try:
+        import jsonpath_ng
+        from jsonpath_ng import parse as jsonpath_parse
+    except ImportError:
+        return "⚠️ Error: jsonpath-ng is not installed. Please add it to requirements."
+
+    target = (ctx.repo_dir / safe_relpath(file_path)).resolve()
+    if not target.exists():
+        candidate_drive = (ctx.drive_root / safe_relpath(file_path)).resolve()
+        if candidate_drive.exists():
+            target = candidate_drive
+        else:
+            return f"⚠️ Error: File {file_path} does not exist in repo or data directory."
+            
+    try:
+        content = target.read_text(encoding='utf-8')
+        data = json.loads(content)
+    except json.JSONDecodeError as e:
+        return f"⚠️ Error decoding JSON file: {e}"
+
+    if operation != "view" and not json_path:
+        return "⚠️ Error: 'json_path' is required for set, add, remove operations."
+
+    if operation == "view":
+        if json_path:
+            try:
+                expr = jsonpath_parse(json_path)
+                matches = [match.value for match in expr.find(data)]
+                return json.dumps(matches, indent=2 if pretty_print else None, ensure_ascii=False)
+            except Exception as e:
+                return f"⚠️ Error parsing/executing JSONPath: {e}"
+        else:
+            return json.dumps(data, indent=2 if pretty_print else None, ensure_ascii=False)
+
+    try:
+        expr = jsonpath_parse(json_path)
+    except Exception as e:
+        return f"⚠️ Invalid JSONPath: {e}"
+
+    if operation == "set":
+        if value is None:
+            return "⚠️ Error: 'value' is required for set operation."
+        expr.update(data, value)
+
+    elif operation == "add":
+        if value is None:
+            return "⚠️ Error: 'value' is required for add operation."
+        matches = expr.find(data)
+        for match in matches:
+            if isinstance(match.value, list):
+                match.value.append(value)
+            elif isinstance(match.value, dict):
+                if isinstance(value, dict):
+                    match.value.update(value)
+                else:
+                    return "⚠️ Error: Can only add dict (merge) to a dict target."
+            else:
+                return f"⚠️ Error: Cannot add to type {type(match.value).__name__}"
+
+    elif operation == "remove":
+        # Workaround for remove:
+        return "⚠️ Error: 'remove' operation not fully supported. Use 'set' to nullify."
+
+    indent = 2 if pretty_print else None
+    target.write_text(json.dumps(data, indent=indent, ensure_ascii=False), encoding='utf-8')
+    return f"OK: Operation {operation} completed on {file_path}."
+
+
+# ---------------------------------------------------------------------------
 # Tool registration
 # ---------------------------------------------------------------------------
 
@@ -398,4 +472,15 @@ def get_tools() -> List[ToolEntry]:
                 "message": {"type": "string", "description": "Message text to forward"},
             }, "required": ["task_id", "message"]},
         }, _forward_to_worker),
+        ToolEntry("json_edit", {
+            "name": "json_edit",
+            "description": "Precise JSON editing using JSONPath. Operations: view, set, add, remove.",
+            "parameters": {"type": "object", "properties": {
+                "operation": {"type": "string", "enum": ["view", "set", "add", "remove"]},
+                "file_path": {"type": "string"},
+                "json_path": {"type": "string"},
+                "value": {"type": "object", "description": "Value to set or add"},
+                "pretty_print": {"type": "boolean", "default": True},
+            }, "required": ["operation", "file_path"]},
+        }, _json_edit),
     ]
