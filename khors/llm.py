@@ -117,7 +117,7 @@ class LLMClient:
         if self._client is None:
             from openai import OpenAI
             key_preview = f"{self._api_key[:8]}... (len={len(self._api_key)})" if self._api_key else "EMPTY"
-            print(f"\n[DEBUG_API_KEY] Init OpenAI client. Key: {key_preview}, base_url: {self._base_url}")
+            log.warning(f"[DEBUG_API_KEY] Init OpenAI client. Key: {key_preview}, base_url: {self._base_url}")
             self._client = OpenAI(
                 base_url=self._base_url,
                 api_key=self._api_key,
