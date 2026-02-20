@@ -55,17 +55,13 @@ def _get_pricing() -> Dict[str, Tuple[float, float, float]]:
     """
     global _pricing_fetched, _cached_pricing
 
-    # Fast path: already fetched (read without lock for performance)
     if _pricing_fetched:
         return _cached_pricing or _MODEL_PRICING_STATIC
 
-    # Slow path: fetch pricing (lock required)
     with _pricing_lock:
-        # Double-check after acquiring lock (another thread may have fetched)
         if _pricing_fetched:
             return _cached_pricing or _MODEL_PRICING_STATIC
 
-        _pricing_fetched = True
         _cached_pricing = dict(_MODEL_PRICING_STATIC)
 
         try:
@@ -73,11 +69,11 @@ def _get_pricing() -> Dict[str, Tuple[float, float, float]]:
             _live = fetch_openrouter_pricing()
             if _live and len(_live) > 5:
                 _cached_pricing.update(_live)
+                log.info("Live pricing merged: %d models total", len(_cached_pricing))
+            _pricing_fetched = True
         except Exception as e:
-            import logging as _log
-            _log.getLogger(__name__).warning("Failed to sync pricing from OpenRouter: %s", e)
-            # Reset flag so we retry next time
-            _pricing_fetched = False
+            log.warning("Failed to sync pricing from OpenRouter: %s", e)
+            _pricing_fetched = True
 
         return _cached_pricing
 

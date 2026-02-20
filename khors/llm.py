@@ -1,5 +1,5 @@
 """
-Khors — LLM client.
+Khors - LLM client.
 
 The only module that communicates with the LLM API (OpenRouter).
 Contract: chat(), default_model(), available_models(), add_usage().
@@ -9,6 +9,8 @@ from __future__ import annotations
 
 import logging
 import os
+import pathlib
+import threading
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -16,7 +18,24 @@ from dotenv import load_dotenv
 
 log = logging.getLogger(__name__)
 
-DEFAULT_LIGHT_MODEL = "google/gemini-2.5-flash"  # Fast and cheap: $0.3/M input
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent.parent
+_dotenv_loaded = False
+
+def _ensure_dotenv():
+    global _dotenv_loaded
+    if not _dotenv_loaded:
+        env_path = _PROJECT_ROOT / ".env"
+        if env_path.exists():
+            load_dotenv(env_path, override=False)
+        _dotenv_loaded = True
+
+_ensure_dotenv()
+
+_DEFAULT_MODEL = os.environ.get("KHORS_MODEL", "google/gemini-2.5-flash")
+
+REASONING_MODEL_PREFIXES = (
+    "openai/o1", "openai/o3", "openai/o4",
+)
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
@@ -30,24 +49,30 @@ def reasoning_rank(value: str) -> int:
     return int(order.get(str(value or "").strip().lower(), 3))
 
 
+def _is_reasoning_model(model: str) -> bool:
+    return any(model.startswith(p) for p in REASONING_MODEL_PREFIXES)
+
+
 def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
-    """Accumulate usage from one LLM call into a running total."""
     for k in ("prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "cache_write_tokens"):
         total[k] = int(total.get(k) or 0) + int(usage.get(k) or 0)
     if usage.get("cost"):
         total["cost"] = float(total.get("cost") or 0) + float(usage["cost"])
 
 
+def _get_pricing_prefixes() -> Tuple[str, ...]:
+    raw = os.environ.get(
+        "KHORS_PRICING_PREFIXES",
+        "anthropic/,openai/,google/,meta-llama/,x-ai/,qwen/,deepseek/,mistralai/"
+    )
+    return tuple(p.strip() for p in raw.split(",") if p.strip())
+
+
 def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
     """
-    Fetch current pricing from OpenRouter API using the openai client.
-
+    Fetch current pricing from OpenRouter API.
     Returns dict of {model_id: (input_per_1m, cached_per_1m, output_per_1m)}.
-    Returns empty dict on failure.
     """
-    import logging
-    log = logging.getLogger("khors.llm")
-
     try:
         from openai import OpenAI
     except ImportError:
@@ -55,40 +80,39 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
         return {}
 
     try:
-        api_key = os.environ.get("OPENROUTER_API_KEY", "dummy")
-        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
-        
-        models = client.models.list().data
+        _ensure_dotenv()
+        api_key = os.environ.get("OPENROUTER_API_KEY", "")
+        if not api_key:
+            log.warning("OPENROUTER_API_KEY not set, cannot fetch pricing")
+            return {}
 
-        # Prefixes we care about
-        prefixes = ("anthropic/", "openai/", "google/", "meta-llama/", "x-ai/", "qwen/")
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+        models = client.models.list().data
+        prefixes = _get_pricing_prefixes()
 
         pricing_dict = {}
         for model in models:
             model_id = model.id
             if not model_id.startswith(prefixes):
                 continue
-            
+
             model_dict = getattr(model, "model_dump", lambda: vars(model))()
             pricing = model_dict.get("pricing", {})
             if not pricing or not pricing.get("prompt"):
                 continue
 
-            # OpenRouter pricing is in dollars per token (raw values)
             raw_prompt = float(pricing.get("prompt", 0))
             raw_completion = float(pricing.get("completion", 0))
             raw_cached_str = pricing.get("input_cache_read")
             raw_cached = float(raw_cached_str) if raw_cached_str else None
 
-            # Convert to per-million tokens
             prompt_price = round(raw_prompt * 1_000_000, 4)
             completion_price = round(raw_completion * 1_000_000, 4)
             if raw_cached is not None:
                 cached_price = round(raw_cached * 1_000_000, 4)
             else:
-                cached_price = round(prompt_price * 0.1, 4)  # fallback: 10% of prompt
+                cached_price = round(prompt_price * 0.1, 4)
 
-            # Sanity check: skip obviously wrong prices
             if prompt_price > 1000 or completion_price > 1000:
                 log.warning(f"Skipping {model_id}: prices seem wrong (prompt={prompt_price}, completion={completion_price})")
                 continue
@@ -104,14 +128,13 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
 
 
 class LLMClient:
-    """OpenRouter API wrapper. All LLM calls go through this class."""
 
     def __init__(
         self,
         api_key: Optional[str] = None,
         base_url: str = "https://openrouter.ai/api/v1",
     ):
-        load_dotenv()
+        _ensure_dotenv()
         self._api_key = (api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
         self._base_url = base_url
         self._client = None
@@ -124,38 +147,31 @@ class LLMClient:
             self._client = OpenAI(
                 base_url=self._base_url,
                 api_key=self._api_key,
-                default_headers={
-                    "X-Title": "Khors",
-                },
+                default_headers={"X-Title": "Khors"},
             )
         return self._client
 
-    def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
-        """Fetch cost from OpenRouter Generation API as fallback. Requires delay."""
-        try:
-            import time
-            client = self._get_client()
-            
-            # Generation stats are not available instantly, need a short delay
-            time.sleep(1.5)
-            
-            response = client.get(f"/generation?id={generation_id}", cast_to=object)
-            data = response.get("data") or {}
-            cost = data.get("total_cost") or data.get("usage", {}).get("cost")
-            if cost is not None:
-                return float(cost)
-            
-            # Retry one more time if still not there
-            time.sleep(1.0)
-            response = client.get(f"/generation?id={generation_id}", cast_to=object)
-            data = response.get("data") or {}
-            cost = data.get("total_cost") or data.get("usage", {}).get("cost")
-            if cost is not None:
-                return float(cost)
-        except Exception:
-            log.debug("Failed to fetch generation cost from OpenRouter", exc_info=True)
-            pass
-        return None
+    def _fetch_generation_cost_async(self, generation_id: str, usage: Dict[str, Any]) -> None:
+        def _fetch():
+            try:
+                client = self._get_client()
+                time.sleep(1.5)
+                response = client.get(f"/generation?id={generation_id}", cast_to=object)
+                data = response.get("data") or {}
+                cost = data.get("total_cost") or data.get("usage", {}).get("cost")
+                if cost is not None:
+                    usage["cost"] = float(cost)
+                    return
+                time.sleep(1.0)
+                response = client.get(f"/generation?id={generation_id}", cast_to=object)
+                data = response.get("data") or {}
+                cost = data.get("total_cost") or data.get("usage", {}).get("cost")
+                if cost is not None:
+                    usage["cost"] = float(cost)
+            except Exception:
+                log.debug("Failed to fetch generation cost from OpenRouter", exc_info=True)
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def chat(
         self,
@@ -167,7 +183,6 @@ class LLMClient:
         tool_choice: str = "auto",
         temperature: float = 0.2,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
         client = self._get_client()
         effort = normalize_reasoning_effort(reasoning_effort)
 
@@ -175,7 +190,6 @@ class LLMClient:
             "reasoning": {"effort": effort, "exclude": True},
         }
 
-        # Pin Anthropic models to Anthropic provider for prompt caching
         if model.startswith("anthropic/"):
             extra_body["provider"] = {
                 "order": ["Anthropic"],
@@ -188,14 +202,15 @@ class LLMClient:
             "messages": messages,
             "max_tokens": max_tokens,
             "extra_body": extra_body,
-            "temperature": temperature,
         }
+
+        if not _is_reasoning_model(model):
+            kwargs["temperature"] = temperature
+
         if tools:
-            # Add cache_control to last tool for Anthropic prompt caching
-            # This caches all tool schemas (they never change between calls)
-            tools_with_cache = [t for t in tools]  # shallow copy
+            tools_with_cache = [t for t in tools]
             if tools_with_cache:
-                last_tool = {**tools_with_cache[-1]}  # copy last tool
+                last_tool = {**tools_with_cache[-1]}
                 last_tool["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
                 tools_with_cache[-1] = last_tool
             kwargs["tools"] = tools_with_cache
@@ -207,15 +222,11 @@ class LLMClient:
         choices = resp_dict.get("choices") or [{}]
         msg = (choices[0] if choices else {}).get("message") or {}
 
-        # Extract cached_tokens from prompt_tokens_details if available
         if not usage.get("cached_tokens"):
             prompt_details = usage.get("prompt_tokens_details") or {}
             if isinstance(prompt_details, dict) and prompt_details.get("cached_tokens"):
                 usage["cached_tokens"] = int(prompt_details["cached_tokens"])
 
-        # Extract cache_write_tokens from prompt_tokens_details if available
-        # OpenRouter: "cache_write_tokens"
-        # Native Anthropic: "cache_creation_tokens" or "cache_creation_input_tokens"
         if not usage.get("cache_write_tokens"):
             prompt_details_for_write = usage.get("prompt_tokens_details") or {}
             if isinstance(prompt_details_for_write, dict):
@@ -225,18 +236,11 @@ class LLMClient:
                 if cache_write:
                     usage["cache_write_tokens"] = int(cache_write)
 
-        # Ensure cost is present in usage (OpenRouter includes it, but fallback if missing)
         if not usage.get("cost"):
             gen_id = resp_dict.get("id") or ""
             if gen_id:
-                cost = self._fetch_generation_cost(gen_id)
-                if cost is not None:
-                    usage["cost"] = cost
+                self._fetch_generation_cost_async(gen_id, usage)
 
-        # CRITICAL FIX: OpenRouter API sometimes injects metadata into the `message` dict
-        # (e.g. "usage", "provider", "model"). If we append this dict back to our conversation
-        # history, the LLM gets confused by the metadata. We must strip it down to exactly
-        # what OpenAI format expects.
         if msg:
             allowed_keys = {"role", "content", "refusal", "tool_calls", "function_call"}
             msg = {k: v for k, v in msg.items() if k in allowed_keys}
@@ -247,26 +251,13 @@ class LLMClient:
         self,
         prompt: str,
         images: List[Dict[str, Any]],
-        model: str = "anthropic/claude-sonnet-4.6",
+        model: Optional[str] = None,
         max_tokens: int = 1024,
         reasoning_effort: str = "low",
     ) -> Tuple[str, Dict[str, Any]]:
-        """
-        Send a vision query to an LLM. Lightweight — no tools, no loop.
+        if model is None:
+            model = os.environ.get("KHORS_MODEL_VISION", self.default_model())
 
-        Args:
-            prompt: Text instruction for the model
-            images: List of image dicts. Each dict must have either:
-                - {"url": "https://..."} — for URL images
-                - {"base64": "<b64>", "mime": "image/png"} — for base64 images
-            model: VLM-capable model ID
-            max_tokens: Max response tokens
-            reasoning_effort: Effort level
-
-        Returns:
-            (text_response, usage_dict)
-        """
-        # Build multipart content
         content: List[Dict[str, Any]] = [{"type": "text", "text": prompt}]
         for img in images:
             if "url" in img:
@@ -295,12 +286,10 @@ class LLMClient:
         return text, usage
 
     def default_model(self) -> str:
-        """Return the single default model from env. LLM switches via tool if needed."""
-        return os.environ.get("KHORS_MODEL", "google/gemini-2.5-flash")
+        return os.environ.get("KHORS_MODEL", _DEFAULT_MODEL)
 
     def available_models(self) -> List[str]:
-        """Return list of available models from env (for switch_model tool schema)."""
-        main = os.environ.get("KHORS_MODEL", "google/gemini-2.5-flash")
+        main = os.environ.get("KHORS_MODEL", _DEFAULT_MODEL)
         code = os.environ.get("KHORS_MODEL_CODE", "")
         light = os.environ.get("KHORS_MODEL_LIGHT", "")
         models = [main]
