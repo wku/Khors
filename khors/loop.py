@@ -978,6 +978,15 @@ def _process_tool_results(
             "content": truncated_result
         })
 
+        if not is_error and len(truncated_result) > 200:
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"[TOOL_OK] '{fn_name}' returned {len(truncated_result)} chars. "
+                    f"Read the tool result above. Do not claim the tool failed or returned only metadata."
+                )
+            })
+
         # Append to LLM trace
         llm_trace["tool_calls"].append({
             "tool": fn_name,
