@@ -59,6 +59,8 @@ def _kill_previous_instance():
 def _write_pid():
     _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
     _PID_FILE.write_text(str(os.getpid()))
+    _startup_lock = _PROJECT_ROOT / "data" / "state" / "startup_verify.lock"
+    _startup_lock.unlink(missing_ok=True)
 
 def process_events_loop():
     event_q = workers.get_event_q()

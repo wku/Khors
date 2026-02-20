@@ -49,7 +49,11 @@ _worker_boot_lock = threading.Lock()
 class Env:
     repo_dir: pathlib.Path
     drive_root: pathlib.Path
-    branch_dev: str = "khors"
+    branch_dev: str = ""
+
+    def __post_init__(self):
+        if not self.branch_dev:
+            object.__setattr__(self, "branch_dev", os.environ.get("KHORS_BRANCH_DEV", "main"))
 
     def repo_path(self, rel: str) -> pathlib.Path:
         return (self.repo_dir / safe_relpath(rel)).resolve()
@@ -102,31 +106,22 @@ class KhorsAgent:
                 'pid': os.getpid(), 'git_branch': git_branch, 'git_sha': git_sha,
             })
             self._verify_restart(git_sha)
-            
-            # Multi-process atomic lock for system verification
+
             verify_lock = self.env.drive_path("state") / "startup_verify.lock"
             fd = -1
             try:
-                # Bible Principle: use O_CREAT | O_EXCL for atomic file creation (lock)
                 fd = os.open(str(verify_lock), os.O_CREAT | os.O_WRONLY | os.O_EXCL)
                 with os.fdopen(fd, 'w') as f:
-                    f.write(str(os.getpid()))
-                fd = -1 # mark as closed by fdopen
+                    f.write(f"{os.getpid()} {utc_now_iso()}")
+                fd = -1
                 log.info(f"Process {os.getpid()} acquired startup lock, verifying system state...")
                 self._verify_system_state(git_sha)
             except FileExistsError:
-                # Lock already exists, another worker is doing the job
                 log.debug(f"Process {os.getpid()} skipped verification: lock exists")
                 return
             finally:
                 if fd != -1:
                     os.close(fd)
-                try:
-                    if verify_lock.exists():
-                        # Only delete our own lock if we want, but usually it is safe to unlink
-                        verify_lock.unlink()
-                except Exception:
-                    pass
         except Exception:
             log.warning("Worker boot logging failed", exc_info=True)
             return
