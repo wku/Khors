@@ -113,35 +113,38 @@ def _build_memory_sections(memory: Memory) -> List[str]:
     return sections
 
 
-def _build_recent_sections(memory: Memory, env: Any, task_id: str = "") -> List[str]:
-    """Build recent chat, recent progress, recent tools, recent events sections."""
+def _build_recent_sections(memory: Memory) -> List[str]:
+    """Build recent chat/progress/events summaries for the systemic prompt."""
     sections = []
 
-    chat_summary = memory.summarize_chat(
-        memory.read_jsonl_tail("chat.jsonl", 200))
+    # Chat summary (recent turns)
+    chat_entries = memory.read_jsonl_tail("chat.jsonl", 50)
+    chat_summary = memory.summarize_chat(chat_entries)
     if chat_summary:
         sections.append("## Recent chat\n\n" + chat_summary)
 
-    progress_entries = memory.read_jsonl_tail("progress.jsonl", 200)
-    if task_id:
-        progress_entries = [e for e in progress_entries if e.get("task_id") == task_id]
-    progress_summary = memory.summarize_progress(progress_entries, limit=15)
-    if progress_summary:
-        sections.append("## Recent progress\n\n" + progress_summary)
+    # Progress summary (self-talk)
+    prog_entries = memory.read_jsonl_tail("progress.jsonl", 20)
+    prog_summary = memory.summarize_progress(prog_entries)
+    if prog_summary:
+        sections.append("## Recent progress\n\n" + prog_summary)
 
-    tools_entries = memory.read_jsonl_tail("tools.jsonl", 200)
-    if task_id:
-        tools_entries = [e for e in tools_entries if e.get("task_id") == task_id]
-    tools_summary = memory.summarize_tools(tools_entries)
-    if tools_summary:
-        sections.append("## Recent tools\n\n" + tools_summary)
-
-    events_entries = memory.read_jsonl_tail("events.jsonl", 200)
-    if task_id:
-        events_entries = [e for e in events_entries if e.get("task_id") == task_id]
-    events_summary = memory.summarize_events(events_entries)
-    if events_summary:
-        sections.append("## Recent events\n\n" + events_summary)
+    # Bible P4: events/errors summary (critical for awareness)
+    # BUT we only include ERROR counts/recent errors to avoid noise and "metadata" confusion
+    event_entries = memory.read_jsonl_tail("events.jsonl", 200)
+    type_counts = {}
+    for e in event_entries:
+        t = e.get("type", "unknown")
+        type_counts[t] = type_counts.get(t, 0) + 1
+    
+    error_types = {"tool_error", "task_error", "llm_api_error"}
+    recent_errors = [e for e in event_entries if e.get("type") in error_types][-5:]
+    
+    if recent_errors:
+        err_lines = ["## Recent Errors\n"]
+        for e in recent_errors:
+            err_lines.append(f"- {e.get('type')}: {clip_text(str(e.get('error','')), 200)}")
+        sections.append("\n".join(err_lines))
 
     supervisor_summary = memory.summarize_supervisor(
         memory.read_jsonl_tail("supervisor.jsonl", 200))
@@ -343,15 +346,19 @@ def build_llm_messages(
     # Dynamic content: changes every round
     try:
         sd = json.loads(state_json)
-        # Remove potentially confusing token stats from LLM view if they are too large
-        for key in ["spent_tokens_prompt", "spent_tokens_completion", "spent_tokens_cached", "spent_tokens_cache_write"]:
+        # Deep cleaning of state from all cost/token metadata to avoid model confusion
+        keys_to_remove = [
+            "spent_tokens_prompt", "spent_tokens_completion", "spent_tokens_cached", "spent_tokens_cache_write",
+            "spent_usd", "spent_calls", "prompt_tokens", "completion_tokens", "cached_tokens", "cost_usd"
+        ]
+        for key in keys_to_remove:
             sd.pop(key, None)
         state_json_clean = json.dumps(sd, ensure_ascii=False, indent=2)
     except Exception:
         state_json_clean = state_json
 
     dynamic_parts = [
-        "## Drive state\n\n" + clip_text(state_json_clean, 10000),
+        "## Drive state\n\n" + clip_text(state_json_clean, 5000),
         _build_runtime_section(env, task),
     ]
 
@@ -374,12 +381,20 @@ def build_llm_messages(
     dynamic_text = "\n\n".join(dynamic_parts)
 
     # Reorder system message components for better instruction following (instructions last)
+    # Bible P3/P4: Ensure model focuses on conversation history for tool results
+    attention_anchor = (
+        "\n\n> [!IMPORTANT]\n"
+        "> Actual contents of files and final results of tool executions are ONLY available in the conversation history (role: tool messages).\n"
+        "> If you see 'SUCCESS' in summaries but don't see content, look at the very end of our dialogue.\n"
+    )
+    
     system_content = (
         "## Context & History\n\n"
         + dynamic_text + "\n\n"
         + semi_stable_text + "\n\n"
         + "## Instructions & Principles\n\n"
         + static_text
+        + attention_anchor
     )
 
     messages: List[Dict[str, Any]] = [

@@ -708,7 +708,12 @@ def run_llm_loop(
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
             )
             
-            print(f"\n[DEBUG_LLM_RESPONSE] Model returned: {str(msg)[:1000]}")
+            print(f"\n[DEBUG_LLM_RESPONSE] Round: {round_idx}, Model: {active_model}")
+            print(f"[DEBUG_LLM_RESPONSE] Finish reason: {msg.get('finish_reason') or msg.get('stop_reason') or '?'}")
+            content_preview = str(msg.get("content", ""))[:500]
+            print(f"[DEBUG_LLM_RESPONSE] Content: {content_preview}...")
+            if msg.get("tool_calls"):
+                print(f"[DEBUG_LLM_RESPONSE] Tool calls: {len(msg['tool_calls'])}")
 
             # Fallback to another model if primary model returns empty responses
             if msg is None:
