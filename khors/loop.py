@@ -956,6 +956,7 @@ def _process_tool_results(
         messages.append({
             "role": "tool",
             "tool_call_id": exec_result["tool_call_id"],
+            "name": fn_name,
             "content": truncated_result
         })
 

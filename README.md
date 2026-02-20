@@ -38,6 +38,12 @@ Telegram/API --> docker-compose / локальный запуск (uv)
               context.py            -- контекст LLM
               loop.py               -- цикл инструментов
               tools/                -- плагины
+                core.py             -- базовые инструменты (repo_read, repo_list и др.)
+                files.py            -- 10+ файловых операций (read_file, write_file, edit_file, delete_file и др.)
+                shell.py            -- выполнение bash команд (run_shell)
+                thinking.py         -- мета-мышление
+                analysis.py         -- AST/regex анализ кода
+                webapi.py           -- HTTP-запросы и веб-поиск
               llm.py                -- клиент OpenRouter
               memory.py             -- память и идентичность
 ```
