@@ -38,7 +38,7 @@ def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
 
 def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
     """
-    Fetch current pricing from OpenRouter API.
+    Fetch current pricing from OpenRouter API using the openai client.
 
     Returns dict of {model_id: (input_per_1m, cached_per_1m, output_per_1m)}.
     Returns empty dict on failure.
@@ -47,29 +47,28 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
     log = logging.getLogger("khors.llm")
 
     try:
-        import requests
+        from openai import OpenAI
     except ImportError:
-        log.warning("requests not installed, cannot fetch pricing")
+        log.warning("openai not installed, cannot fetch pricing")
         return {}
 
     try:
-        url = "https://openrouter.ai/api/v1/models"
-        resp = requests.get(url, timeout=15)
-        resp.raise_for_status()
-
-        data = resp.json()
-        models = data.get("data", [])
+        api_key = os.environ.get("OPENROUTER_API_KEY", "dummy")
+        client = OpenAI(base_url="https://openrouter.ai/api/v1", api_key=api_key)
+        
+        models = client.models.list().data
 
         # Prefixes we care about
         prefixes = ("anthropic/", "openai/", "google/", "meta-llama/", "x-ai/", "qwen/")
 
         pricing_dict = {}
         for model in models:
-            model_id = model.get("id", "")
+            model_id = model.id
             if not model_id.startswith(prefixes):
                 continue
-
-            pricing = model.get("pricing", {})
+            
+            model_dict = getattr(model, "model_dump", lambda: vars(model))()
+            pricing = model_dict.get("pricing", {})
             if not pricing or not pricing.get("prompt"):
                 continue
 
@@ -97,7 +96,7 @@ def fetch_openrouter_pricing() -> Dict[str, Tuple[float, float, float]]:
         log.info(f"Fetched pricing for {len(pricing_dict)} models from OpenRouter")
         return pricing_dict
 
-    except (requests.RequestException, ValueError, KeyError) as e:
+    except Exception as e:
         log.warning(f"Failed to fetch OpenRouter pricing: {e}")
         return {}
 
@@ -129,28 +128,25 @@ class LLMClient:
     def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
         """Fetch cost from OpenRouter Generation API as fallback. Requires delay."""
         try:
-            import requests
             import time
-            url = f"{self._base_url.rstrip('/')}/generation?id={generation_id}"
+            client = self._get_client()
             
             # Generation stats are not available instantly, need a short delay
             time.sleep(1.5)
             
-            resp = requests.get(url, headers={"Authorization": f"Bearer {self._api_key}"}, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json().get("data") or {}
-                cost = data.get("total_cost") or data.get("usage", {}).get("cost")
-                if cost is not None:
-                    return float(cost)
+            response = client.get(f"/generation?id={generation_id}", cast_to=object)
+            data = response.get("data") or {}
+            cost = data.get("total_cost") or data.get("usage", {}).get("cost")
+            if cost is not None:
+                return float(cost)
             
             # Retry one more time if still not there
             time.sleep(1.0)
-            resp = requests.get(url, headers={"Authorization": f"Bearer {self._api_key}"}, timeout=5)
-            if resp.status_code == 200:
-                data = resp.json().get("data") or {}
-                cost = data.get("total_cost") or data.get("usage", {}).get("cost")
-                if cost is not None:
-                    return float(cost)
+            response = client.get(f"/generation?id={generation_id}", cast_to=object)
+            data = response.get("data") or {}
+            cost = data.get("total_cost") or data.get("usage", {}).get("cost")
+            if cost is not None:
+                return float(cost)
         except Exception:
             log.debug("Failed to fetch generation cost from OpenRouter", exc_info=True)
             pass
@@ -164,6 +160,7 @@ class LLMClient:
         reasoning_effort: str = "medium",
         max_tokens: int = 16384,
         tool_choice: str = "auto",
+        temperature: float = 0.2,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
         """Single LLM call. Returns: (response_message_dict, usage_dict with cost)."""
         client = self._get_client()
@@ -186,6 +183,7 @@ class LLMClient:
             "messages": messages,
             "max_tokens": max_tokens,
             "extra_body": extra_body,
+            "temperature": temperature,
         }
         if tools:
             # Add cache_control to last tool for Anthropic prompt caching
@@ -229,6 +227,14 @@ class LLMClient:
                 cost = self._fetch_generation_cost(gen_id)
                 if cost is not None:
                     usage["cost"] = cost
+
+        # CRITICAL FIX: OpenRouter API sometimes injects metadata into the `message` dict
+        # (e.g. "usage", "provider", "model"). If we append this dict back to our conversation
+        # history, the LLM gets confused by the metadata. We must strip it down to exactly
+        # what OpenAI format expects.
+        if msg:
+            allowed_keys = {"role", "content", "refusal", "tool_calls", "function_call"}
+            msg = {k: v for k, v in msg.items() if k in allowed_keys}
 
         return msg, usage
 
