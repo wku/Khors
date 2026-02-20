@@ -113,13 +113,13 @@ def _build_memory_sections(memory: Memory) -> List[str]:
     return sections
 
 
-def _build_recent_sections(memory: Memory) -> List[str]:
+def _build_recent_sections(memory: Memory, env: Any = None, task_id: str = "") -> List[str]:
     """Build recent chat/progress/events summaries for the systemic prompt."""
     sections = []
 
     # Chat summary (recent turns)
     chat_entries = memory.read_jsonl_tail("chat.jsonl", 50)
-    chat_summary = memory.summarize_chat(chat_entries)
+    chat_summary = memory.summarize_chat(chat_entries, task_id=task_id)
     if chat_summary:
         sections.append("## Recent chat\n\n" + chat_summary)
 
