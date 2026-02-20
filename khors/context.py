@@ -368,22 +368,7 @@ def build_llm_messages(
     messages: List[Dict[str, Any]] = [
         {
             "role": "system",
-            "content": [
-                {
-                    "type": "text",
-                    "text": static_text,
-                    "cache_control": {"type": "ephemeral", "ttl": "1h"},
-                },
-                {
-                    "type": "text",
-                    "text": semi_stable_text,
-                    "cache_control": {"type": "ephemeral"},
-                },
-                {
-                    "type": "text",
-                    "text": dynamic_text,
-                },
-            ],
+            "content": static_text + "\n\n" + semi_stable_text + "\n\n" + dynamic_text,
         },
         {"role": "user", "content": _build_user_content(task)},
     ]
@@ -426,7 +411,6 @@ def apply_message_token_soft_cap(
     if soft_cap_tokens <= 0 or estimated <= soft_cap_tokens:
         return messages, info
 
-    # Prune log summaries from the dynamic text block in multipart system messages
     prunable = ["## Recent chat", "## Recent progress", "## Recent tools", "## Recent events", "## Supervisor"]
     pruned = copy.deepcopy(messages)
     for prefix in prunable:
@@ -434,41 +418,25 @@ def apply_message_token_soft_cap(
             break
         for i, msg in enumerate(pruned):
             content = msg.get("content")
-
-            # Handle multipart content (trim from dynamic text block)
-            if isinstance(content, list) and msg.get("role") == "system":
-                # Find the dynamic text block (the block without cache_control)
-                for j, block in enumerate(content):
-                    if (isinstance(block, dict) and
-                        block.get("type") == "text" and
-                        "cache_control" not in block):
-                        text = block.get("text", "")
-                        if prefix in text:
-                            # Remove this section from the dynamic text
-                            lines = text.split("\n\n")
-                            new_lines = []
-                            skip_section = False
-                            for line in lines:
-                                if line.startswith(prefix):
-                                    skip_section = True
-                                    info["trimmed_sections"].append(prefix)
-                                    continue
-                                if line.startswith("##"):
-                                    skip_section = False
-                                if not skip_section:
-                                    new_lines.append(line)
-
-                            block["text"] = "\n\n".join(new_lines)
-                            estimated = sum(_estimate_message_tokens(m) for m in pruned)
-                            break
-                break
-
-            # Handle legacy string content (for backwards compatibility)
-            elif isinstance(content, str) and content.startswith(prefix):
-                pruned.pop(i)
-                info["trimmed_sections"].append(prefix)
-                estimated = sum(_estimate_message_tokens(m) for m in pruned)
-                break
+            if not isinstance(content, str) or msg.get("role") != "system":
+                continue
+            if prefix not in content:
+                continue
+            lines = content.split("\n\n")
+            new_lines = []
+            skip_section = False
+            for line in lines:
+                if line.startswith(prefix):
+                    skip_section = True
+                    info["trimmed_sections"].append(prefix)
+                    continue
+                if line.startswith("##"):
+                    skip_section = False
+                if not skip_section:
+                    new_lines.append(line)
+            pruned[i] = {**msg, "content": "\n\n".join(new_lines)}
+            estimated = sum(_estimate_message_tokens(m) for m in pruned)
+            break
 
     info["estimated_tokens_after"] = estimated
     return pruned, info
@@ -569,11 +537,6 @@ def compact_tool_history(messages: list, keep_recent: int = 6) -> list:
     # Build compacted message list
     result = []
     for i, msg in enumerate(messages):
-        # Skip system messages with multipart content (prompt caching format)
-        if msg.get("role") == "system" and isinstance(msg.get("content"), list):
-            result.append(msg)
-            continue
-
         if msg.get("role") == "tool" and i > 0:
             # Check if the preceding assistant message (with tool_calls)
             # is one we want to compact
@@ -645,13 +608,12 @@ def compact_tool_history_llm(messages: list, keep_recent: int = 6) -> list:
     )
 
     try:
-        from khors.llm import LLMClient, DEFAULT_LIGHT_MODEL
-        light_model = os.environ.get("KHORS_MODEL_LIGHT") or DEFAULT_LIGHT_MODEL
+        from khors.llm import LLMClient
+        light_model = os.environ.get("KHORS_MODEL_LIGHT", "google/gemini-2.5-flash")
         client = LLMClient()
         resp_msg, _usage = client.chat(
             messages=[{"role": "user", "content": prompt}],
             model=light_model,
-            reasoning_effort="low",
             max_tokens=1024,
         )
         summary_text = resp_msg.get("content") or ""

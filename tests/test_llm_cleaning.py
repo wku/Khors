@@ -28,8 +28,8 @@ def test_llm_msg_cleaning():
     mock_openai_client.chat.completions.create.return_value = mock_response
     client._get_client = lambda: mock_openai_client
     
-    # Мок _fetch_generation_cost
-    client._fetch_generation_cost = lambda x: 0.005
+    # Мок _fetch_generation_cost_async
+    client._fetch_generation_cost_async = lambda gen_id, usage: None
     
     msg, usage = client.chat([{"role": "user", "content": "hi"}], "test-model")
     

@@ -196,7 +196,6 @@ class BackgroundConsciousness:
                     messages=messages,
                     model=model,
                     tools=tools,
-                    reasoning_effort="low",
                     max_tokens=2048,
                 )
                 cost = float(usage.get("cost") or 0)

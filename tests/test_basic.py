@@ -2,7 +2,7 @@ import pytest
 import os
 import json
 from khors.utils import utc_now_iso, truncate_for_log, clip_text
-from khors.llm import add_usage, normalize_reasoning_effort
+from khors.llm import add_usage
 
 def test_utc_now_iso():
     iso = utc_now_iso()
@@ -40,12 +40,6 @@ def test_add_usage():
     assert total["prompt_tokens"] == 15
     assert total["completion_tokens"] == 7
     assert total["cost"] == 0.015
-
-def test_normalize_reasoning_effort():
-    assert normalize_reasoning_effort("HIGH") == "high"
-    assert normalize_reasoning_effort("invalid_value", "medium") == "medium"
-    assert normalize_reasoning_effort(None, "low") == "low"
-    assert normalize_reasoning_effort("none") == "none"
 
 def test_system_imports():
     # Ensure major modules can be imported without syntax errors

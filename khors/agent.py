@@ -439,13 +439,7 @@ class KhorsAgent:
             # --- LLM loop (delegated to loop.py) ---
             usage: Dict[str, Any] = {}
             llm_trace: Dict[str, Any] = {"assistant_notes": [], "tool_calls": []}
-
-            # Set initial reasoning effort based on task type
             task_type_str = str(task.get("type") or "").lower()
-            if task_type_str in ("evolution", "review"):
-                initial_effort = "high"
-            else:
-                initial_effort = "medium"
 
             try:
                 text, usage, llm_trace = run_llm_loop(
@@ -459,7 +453,6 @@ class KhorsAgent:
                     task_id=str(task.get("id") or ""),
                     budget_remaining_usd=budget_remaining,
                     event_queue=self._event_queue,
-                    initial_effort=initial_effort,
                     drive_root=self.env.drive_root,
                 )
             except Exception as e:

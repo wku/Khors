@@ -33,25 +33,6 @@ _ensure_dotenv()
 
 _DEFAULT_MODEL = os.environ.get("KHORS_MODEL", "google/gemini-2.5-flash")
 
-REASONING_MODEL_PREFIXES = (
-    "openai/o1", "openai/o3", "openai/o4",
-)
-
-
-def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
-    allowed = {"none", "minimal", "low", "medium", "high", "xhigh"}
-    v = str(value or "").strip().lower()
-    return v if v in allowed else default
-
-
-def reasoning_rank(value: str) -> int:
-    order = {"none": 0, "minimal": 1, "low": 2, "medium": 3, "high": 4, "xhigh": 5}
-    return int(order.get(str(value or "").strip().lower(), 3))
-
-
-def _is_reasoning_model(model: str) -> bool:
-    return any(model.startswith(p) for p in REASONING_MODEL_PREFIXES)
-
 
 def add_usage(total: Dict[str, Any], usage: Dict[str, Any]) -> None:
     for k in ("prompt_tokens", "completion_tokens", "total_tokens", "cached_tokens", "cache_write_tokens"):
@@ -178,7 +159,6 @@ class LLMClient:
         messages: List[Dict[str, Any]],
         model: str,
         tools: Optional[List[Dict[str, Any]]] = None,
-        reasoning_effort: str = "medium",
         max_tokens: int = 16384,
         tool_choice: str = "auto",
         temperature: float = 0.2,
@@ -189,18 +169,11 @@ class LLMClient:
             "model": model,
             "messages": messages,
             "max_tokens": max_tokens,
+            "temperature": temperature,
         }
 
-        if not _is_reasoning_model(model):
-            kwargs["temperature"] = temperature
-
         if tools:
-            tools_with_cache = [t for t in tools]
-            if tools_with_cache:
-                last_tool = {**tools_with_cache[-1]}
-                last_tool["cache_control"] = {"type": "ephemeral", "ttl": "1h"}
-                tools_with_cache[-1] = last_tool
-            kwargs["tools"] = tools_with_cache
+            kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
 
         resp = client.chat.completions.create(**kwargs)
@@ -240,7 +213,6 @@ class LLMClient:
         images: List[Dict[str, Any]],
         model: Optional[str] = None,
         max_tokens: int = 1024,
-        reasoning_effort: str = "low",
     ) -> Tuple[str, Dict[str, Any]]:
         if model is None:
             model = os.environ.get("KHORS_MODEL_VISION", self.default_model())
@@ -266,7 +238,6 @@ class LLMClient:
             messages=messages,
             model=model,
             tools=None,
-            reasoning_effort=reasoning_effort,
             max_tokens=max_tokens,
         )
         text = response_msg.get("content") or ""

@@ -18,7 +18,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 
 import logging
 
-from khors.llm import LLMClient, normalize_reasoning_effort, add_usage
+from khors.llm import LLMClient, add_usage
 from khors.tools.registry import ToolRegistry
 from khors.context import compact_tool_history, compact_tool_history_llm
 from khors.utils import utc_now_iso, append_jsonl, truncate_for_log, sanitize_tool_args_for_log, sanitize_tool_result_for_log, estimate_tokens
@@ -401,7 +401,6 @@ def _check_budget_limits(
     messages: List[Dict[str, Any]],
     llm: LLMClient,
     active_model: str,
-    active_effort: str,
     max_retries: int,
     drive_logs: pathlib.Path,
     task_id: str,
@@ -428,7 +427,7 @@ def _check_budget_limits(
         messages.append({"role": "system", "content": f"[BUDGET LIMIT] {finish_reason} Give your final response now."})
         try:
             final_msg, final_cost = _call_llm_with_retry(
-                llm, messages, active_model, None, active_effort,
+                llm, messages, active_model, None,
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
             )
             if final_msg:
@@ -598,7 +597,6 @@ def run_llm_loop(
     task_id: str = "",
     budget_remaining_usd: Optional[float] = None,
     event_queue: Optional[queue.Queue] = None,
-    initial_effort: str = "medium",
     drive_root: Optional[pathlib.Path] = None,
 ) -> Tuple[str, Dict[str, Any], Dict[str, Any]]:
     """
@@ -607,15 +605,9 @@ def run_llm_loop(
     Sends messages to LLM, executes tool calls, retries on errors.
     LLM controls model/effort via switch_model tool (LLM-first, Bible P3).
 
-    Args:
-        budget_remaining_usd: If set, forces completion when task cost exceeds 50% of this budget
-        initial_effort: Initial reasoning effort level (default "medium")
-
     Returns: (final_text, accumulated_usage, llm_trace)
     """
-    # LLM-first: single default model, LLM switches via tool if needed
     active_model = llm.default_model()
-    active_effort = initial_effort
 
     llm_trace: Dict[str, Any] = {"assistant_notes": [], "tool_calls": []}
     accumulated_usage: Dict[str, Any] = {}
@@ -651,7 +643,7 @@ def run_llm_loop(
                 messages.append({"role": "system", "content": f"[ROUND_LIMIT] {finish_reason}"})
                 try:
                     final_msg, final_cost = _call_llm_with_retry(
-                        llm, messages, active_model, None, active_effort,
+                        llm, messages, active_model, None,
                         max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
                     )
                     if final_msg:
@@ -664,14 +656,11 @@ def run_llm_loop(
             # Soft self-check reminder every 50 rounds (LLM-first: agent decides, not code)
             _maybe_inject_self_check(round_idx, MAX_ROUNDS, messages, accumulated_usage, emit_progress)
 
-            # Apply LLM-driven model/effort switch (via switch_model tool)
+            # Apply LLM-driven model switch (via switch_model tool)
             ctx = tools._ctx
             if ctx.active_model_override:
                 active_model = ctx.active_model_override
                 ctx.active_model_override = None
-            if ctx.active_effort_override:
-                active_effort = normalize_reasoning_effort(ctx.active_effort_override, default=active_effort)
-                ctx.active_effort_override = None
 
             # Inject owner messages (in-process queue + Drive mailbox)
             _drain_incoming_messages(messages, incoming_messages, drive_root, task_id, event_queue, _owner_msg_seen)
@@ -694,7 +683,7 @@ def run_llm_loop(
             print(f"[DEBUG_LLM_REQUEST] Last msg: {str(messages[-1])[:500] if messages else 'None'}")
             
             msg, cost = _call_llm_with_retry(
-                llm, messages, active_model, tool_schemas, active_effort,
+                llm, messages, active_model, tool_schemas,
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
             )
             
@@ -725,7 +714,7 @@ def run_llm_loop(
 
                 # Try fallback model (don't increment round_idx — this is still same logical round)
                 msg, fallback_cost = _call_llm_with_retry(
-                    llm, messages, fallback_model, tool_schemas, active_effort,
+                    llm, messages, fallback_model, tool_schemas,
                     max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
                 )
 
@@ -761,7 +750,7 @@ def run_llm_loop(
             # LLM decides when to stop (Bible P0, P3). We only enforce hard budget limit.
             budget_result = _check_budget_limits(
                 budget_remaining_usd, accumulated_usage, round_idx, messages,
-                llm, active_model, active_effort, max_retries, drive_logs,
+                llm, active_model, max_retries, drive_logs,
                 task_id, event_queue, llm_trace, task_type
             )
             if budget_result is not None:
@@ -828,7 +817,6 @@ def _call_llm_with_retry(
     messages: List[Dict[str, Any]],
     model: str,
     tools: Optional[List[Dict[str, Any]]],
-    effort: str,
     max_retries: int,
     drive_logs: pathlib.Path,
     task_id: str,
@@ -849,7 +837,7 @@ def _call_llm_with_retry(
 
     for attempt in range(max_retries):
         try:
-            kwargs = {"messages": messages, "model": model, "reasoning_effort": effort}
+            kwargs = {"messages": messages, "model": model}
             if tools:
                 kwargs["tools"] = tools
             resp_msg, usage = llm.chat(**kwargs)
@@ -902,7 +890,6 @@ def _call_llm_with_retry(
                 "ts": utc_now_iso(), "type": "llm_round",
                 "task_id": task_id,
                 "round": round_idx, "model": model,
-                "reasoning_effort": effort,
                 "prompt_tokens": int(usage.get("prompt_tokens") or 0),
                 "completion_tokens": int(usage.get("completion_tokens") or 0),
                 "cached_tokens": int(usage.get("cached_tokens") or 0),
