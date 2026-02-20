@@ -182,7 +182,7 @@ class Memory:
     def summarize_tools(self, entries: List[Dict[str, Any]]) -> str:
         if not entries:
             return ""
-        lines = []
+        lines = ["History of recent tool calls (summarized):"]
         for e in entries[-10:]:
             tool = e.get("tool") or e.get("tool_name") or "?"
             args = e.get("args", {})
@@ -193,8 +193,8 @@ class Memory:
             if "cmd" in args:
                 hints.append(f"cmd={short(str(args['cmd']), 80)}")
             hint_str = ", ".join(hints) if hints else ""
-            status = "✓" if ("result_preview" in e and not str(e.get("result_preview", "")).lstrip().startswith("⚠️")) else "·"
-            lines.append(f"{status} {tool} {hint_str}".strip())
+            status = "SUCCESS" if ("result_preview" in e and not str(e.get("result_preview", "")).lstrip().startswith("⚠️")) else "FAILED"
+            lines.append(f"  - {tool}({hint_str}) -> {status}")
         return "\n".join(lines)
 
     def summarize_events(self, entries: List[Dict[str, Any]]) -> str:

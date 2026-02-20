@@ -7,6 +7,7 @@ Contract: chat(), default_model(), available_models(), add_usage().
 
 from __future__ import annotations
 
+import json
 import logging
 import os
 import pathlib
@@ -176,6 +177,17 @@ class LLMClient:
             kwargs["tools"] = tools
             kwargs["tool_choice"] = tool_choice
 
+        # Dump messages for debugging
+        try:
+            dump_dir = _PROJECT_ROOT / "data" / "logs"
+            dump_dir.mkdir(parents=True, exist_ok=True)
+            dump_path = dump_dir / "messages_dump.json"
+            with open(dump_path, "w", encoding="utf-8") as f:
+                json.dump(messages, f, ensure_ascii=False, indent=2)
+            log.warning(f"[DEBUG_LLM_DUMP] Messages dumped to {dump_path}")
+        except Exception as e:
+            log.debug(f"Failed to dump messages: {e}")
+
         resp = client.chat.completions.create(**kwargs)
         resp_dict = resp.model_dump()
         usage = resp_dict.get("usage") or {}
@@ -204,6 +216,11 @@ class LLMClient:
         if msg:
             allowed_keys = {"role", "content", "refusal", "tool_calls", "function_call"}
             msg = {k: v for k, v in msg.items() if k in allowed_keys}
+            
+            # Log finish reason
+            finish_reason = choices[0].get("finish_reason") if choices else None
+            if finish_reason:
+                log.warning(f"[DEBUG_LLM_RESPONSE] Finish reason: {finish_reason}")
 
         return msg, usage
 

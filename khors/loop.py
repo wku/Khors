@@ -532,15 +532,29 @@ def _setup_dynamic_tools(tools_registry, tool_schemas, messages):
 
     non_core_count = len(tools_registry.list_non_core_tools())
     if non_core_count > 0:
-        messages.append({
-            "role": "system",
-            "content": (
-                f"Note: You have {len(tool_schemas)} core tools loaded. "
-                f"There are {non_core_count} additional tools available "
-                f"(use `list_available_tools` to see them, `enable_tools` to activate). "
-                f"Core tools cover most tasks. Enable extras only when needed."
-            ),
-        })
+        # P0: Try to inject into the primary system message if it exists
+        injected = False
+        for msg in messages:
+            if msg.get("role") == "system" and isinstance(msg.get("content"), str):
+                msg["content"] += (
+                    f"\n\nNote: You have {len(tool_schemas)} core tools loaded. "
+                    f"There are {non_core_count} additional tools available "
+                    f"(use `list_available_tools` to see them, `enable_tools` to activate). "
+                    f"Core tools cover most tasks. Enable extras only when needed."
+                )
+                injected = True
+                break
+        
+        if not injected:
+            messages.insert(0, {
+                "role": "system",
+                "content": (
+                    f"Note: You have {len(tool_schemas)} core tools loaded. "
+                    f"There are {non_core_count} additional tools available "
+                    f"(use `list_available_tools` to see them, `enable_tools` to activate). "
+                    f"Core tools cover most tasks. Enable extras only when needed."
+                ),
+            })
 
     return tool_schemas, enabled_extra
 
@@ -618,6 +632,9 @@ def run_llm_loop(
 
     # Selective tool schemas: core set + meta-tools for discovery.
     tool_schemas = tools.schemas(core_only=True)
+    
+    # Inject dynamic tools note into SYSTEM message instead of appending new messages
+    # This keeps system context together and compliant with LLM expectations
     tool_schemas, _enabled_extra_tools = _setup_dynamic_tools(tools, tool_schemas, messages)
 
     # Set budget tracking on tool context for real-time usage events
@@ -679,8 +696,12 @@ def run_llm_loop(
                     messages = compact_tool_history(messages, keep_recent=6)
 
             # --- LLM call with retry ---
-            print(f"\n[DEBUG_LLM_REQUEST] Messages count: {len(messages)}")
-            print(f"[DEBUG_LLM_REQUEST] Last msg: {str(messages[-1])[:500] if messages else 'None'}")
+            print(f"\n[DEBUG_LLM_REQUEST] Round: {round_idx}, Model: {active_model}, Messages: {len(messages)}")
+            if messages:
+                last_msg = messages[-1]
+                role = last_msg.get("role")
+                content_preview = str(last_msg.get("content"))[:300]
+                print(f"[DEBUG_LLM_REQUEST] Last msg ({role}): {content_preview}...")
             
             msg, cost = _call_llm_with_retry(
                 llm, messages, active_model, tool_schemas,
