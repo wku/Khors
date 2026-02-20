@@ -10,21 +10,55 @@ import sys
 import threading
 import time
 
+import signal
+
 from dotenv import load_dotenv
-load_dotenv(".env")
-# Ensure we can import from current directory
+
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
+load_dotenv(_PROJECT_ROOT / ".env")
 sys.path.append(os.getcwd())
 
 from supervisor import state, queue, workers, telegram
 from supervisor.telegram import TelegramClient
 
-# Setup logging
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)]
 )
 log = logging.getLogger("launcher")
+
+_PID_FILE = _PROJECT_ROOT / "data" / "launcher.pid"
+
+
+def _kill_previous_instance():
+    try:
+        if not _PID_FILE.exists():
+            return
+        old_pid = int(_PID_FILE.read_text().strip())
+        if old_pid == os.getpid():
+            return
+        log.info(f"Killing previous launcher (pid {old_pid})")
+        os.kill(old_pid, signal.SIGTERM)
+        for _ in range(30):
+            time.sleep(0.1)
+            try:
+                os.kill(old_pid, 0)
+            except OSError:
+                break
+        else:
+            log.warning(f"Previous launcher (pid {old_pid}) did not exit, sending SIGKILL")
+            try:
+                os.kill(old_pid, signal.SIGKILL)
+            except OSError:
+                pass
+    except (ValueError, OSError, FileNotFoundError):
+        pass
+
+
+def _write_pid():
+    _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
+    _PID_FILE.write_text(str(os.getpid()))
 
 def process_events_loop():
     event_q = workers.get_event_q()
@@ -61,6 +95,8 @@ def process_events_loop():
             time.sleep(1)
 
 def main():
+    _kill_previous_instance()
+    _write_pid()
     log.info("Khors initialization started.")
 
     # 1. Configuration from Environment
@@ -159,10 +195,12 @@ def main():
     except KeyboardInterrupt:
         log.info("Stopping...")
         workers.kill_workers()
+        _PID_FILE.unlink(missing_ok=True)
         sys.exit(0)
     except Exception as e:
         log.critical(f"Critical crash: {e}", exc_info=True)
         workers.kill_workers()
+        _PID_FILE.unlink(missing_ok=True)
         sys.exit(1)
 
 if __name__ == "__main__":
