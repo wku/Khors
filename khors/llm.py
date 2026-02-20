@@ -127,18 +127,24 @@ class LLMClient:
         return self._client
 
     def _fetch_generation_cost(self, generation_id: str) -> Optional[float]:
-        """Fetch cost from OpenRouter Generation API as fallback."""
+        """Fetch cost from OpenRouter Generation API as fallback. Requires delay."""
         try:
             import requests
+            import time
             url = f"{self._base_url.rstrip('/')}/generation?id={generation_id}"
+            
+            # Generation stats are not available instantly, need a short delay
+            time.sleep(1.5)
+            
             resp = requests.get(url, headers={"Authorization": f"Bearer {self._api_key}"}, timeout=5)
             if resp.status_code == 200:
                 data = resp.json().get("data") or {}
                 cost = data.get("total_cost") or data.get("usage", {}).get("cost")
                 if cost is not None:
                     return float(cost)
-            # Generation might not be ready yet — retry once after short delay
-            time.sleep(0.5)
+            
+            # Retry one more time if still not there
+            time.sleep(1.0)
             resp = requests.get(url, headers={"Authorization": f"Bearer {self._api_key}"}, timeout=5)
             if resp.status_code == 200:
                 data = resp.json().get("data") or {}
