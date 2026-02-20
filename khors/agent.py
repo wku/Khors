@@ -103,18 +103,30 @@ class KhorsAgent:
             })
             self._verify_restart(git_sha)
             
-            # Multi-process lock for system verification
+            # Multi-process atomic lock for system verification
             verify_lock = self.env.drive_path("state") / "startup_verify.lock"
-            if not verify_lock.exists():
+            fd = -1
+            try:
+                # Bible Principle: use O_CREAT | O_EXCL for atomic file creation (lock)
+                fd = os.open(str(verify_lock), os.O_CREAT | os.O_WRONLY | os.O_EXCL)
+                with os.fdopen(fd, 'w') as f:
+                    f.write(str(os.getpid()))
+                fd = -1 # mark as closed by fdopen
+                log.info(f"Process {os.getpid()} acquired startup lock, verifying system state...")
+                self._verify_system_state(git_sha)
+            except FileExistsError:
+                # Lock already exists, another worker is doing the job
+                log.debug(f"Process {os.getpid()} skipped verification: lock exists")
+                return
+            finally:
+                if fd != -1:
+                    os.close(fd)
                 try:
-                    verify_lock.write_text(str(os.getpid()), encoding="utf-8")
-                    self._verify_system_state(git_sha)
-                finally:
-                    try:
-                        if verify_lock.exists():
-                            verify_lock.unlink()
-                    except Exception:
-                        pass
+                    if verify_lock.exists():
+                        # Only delete our own lock if we want, but usually it is safe to unlink
+                        verify_lock.unlink()
+                except Exception:
+                    pass
         except Exception:
             log.warning("Worker boot logging failed", exc_info=True)
             return

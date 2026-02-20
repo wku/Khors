@@ -12,6 +12,8 @@ import os
 import time
 from typing import Any, Dict, List, Optional, Tuple
 
+from dotenv import load_dotenv
+
 log = logging.getLogger(__name__)
 
 DEFAULT_LIGHT_MODEL = "google/gemini-2.5-flash"  # Fast and cheap: $0.3/M input
@@ -109,7 +111,8 @@ class LLMClient:
         api_key: Optional[str] = None,
         base_url: str = "https://openrouter.ai/api/v1",
     ):
-        self._api_key = api_key or os.environ.get("OPENROUTER_API_KEY", "")
+        load_dotenv()
+        self._api_key = (api_key or os.environ.get("OPENROUTER_API_KEY", "")).strip()
         self._base_url = base_url
         self._client = None
 
