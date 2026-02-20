@@ -13,7 +13,15 @@ MODEL = "google/gemini-2.5-flash"
 def describe_file(path: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         code = f.read()
-    client = OpenAI(base_url=OPENROUTER_URL, api_key=OPENROUTER_KEY, timeout=60)
+    client = OpenAI(
+    base_url=OPENROUTER_URL,
+    api_key=OPENROUTER_KEY,
+    timeout=60,
+    default_headers={
+        "HTTP-Referer": "http://localhost",
+        "X-Title": "demo"
+    }
+)
     r = client.chat.completions.create(
         model=MODEL,
         messages=[{"role": "user", "content": f"Opishi chto delaet etot python kod, na russkom yazyke, kratko i strukturirovano:\n\n{code}"}],
