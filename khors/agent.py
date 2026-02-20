@@ -102,7 +102,19 @@ class KhorsAgent:
                 'pid': os.getpid(), 'git_branch': git_branch, 'git_sha': git_sha,
             })
             self._verify_restart(git_sha)
-            self._verify_system_state(git_sha)
+            
+            # Multi-process lock for system verification
+            verify_lock = self.env.drive_path("state") / "startup_verify.lock"
+            if not verify_lock.exists():
+                try:
+                    verify_lock.write_text(str(os.getpid()), encoding="utf-8")
+                    self._verify_system_state(git_sha)
+                finally:
+                    try:
+                        if verify_lock.exists():
+                            verify_lock.unlink()
+                    except Exception:
+                        pass
         except Exception:
             log.warning("Worker boot logging failed", exc_info=True)
             return
@@ -142,6 +154,12 @@ class KhorsAgent:
         import re
         import subprocess
         try:
+            # Bible Principle: check for git lock before proceeding
+            lock_file = self.env.repo_dir / ".git" / "index.lock"
+            if lock_file.exists():
+                log.info("Git lock detected, skipping auto-rescue")
+                return {"status": "warning", "message": "git_locked"}, 0
+
             result = subprocess.run(
                 ["git", "status", "--porcelain"],
                 cwd=str(self.env.repo_dir),
@@ -154,6 +172,17 @@ class KhorsAgent:
                 try:
                     # Only stage tracked files (not secrets/notebooks)
                     subprocess.run(["git", "add", "-u"], cwd=str(self.env.repo_dir), timeout=10, check=True)
+                    
+                    # Check if we actually have anything staged (nothing to commit)
+                    # skip if only untracked files are present (git add -u doesn't add untracked)
+                    staged = subprocess.run(
+                        ["git", "diff", "--cached", "--quiet"],
+                        cwd=str(self.env.repo_dir), timeout=10
+                    )
+                    if staged.returncode == 0:
+                        # Nothing staged
+                        return {"status": "ok", "files": dirty_files[:20], "auto_committed": False}, 0
+
                     subprocess.run(
                         ["git", "commit", "-m", "auto-rescue: uncommitted changes detected on startup"],
                         cwd=str(self.env.repo_dir), timeout=30, check=True
