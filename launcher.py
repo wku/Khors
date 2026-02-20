@@ -1,18 +1,15 @@
-"""
-Khors Launcher.
-Initializes the supervisor components and runs the main event loop.
-"""
+import datetime
+import json
 import logging
 import os
 import pathlib
-import queue as builtin_queue
 import sys
-import threading
 import time
+import traceback
 
-import signal
-
-from dotenv import load_dotenv
+from supervisor import state, telegram, workers, queue
+from supervisor.state import load_state, save_state, append_jsonl
+from khors.utils import utc_now_iso, write_text, run_cmd
 
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
 load_dotenv(_PROJECT_ROOT / ".env")
@@ -75,32 +72,117 @@ def process_events_loop():
             if e_type == "send_message" and chat_id:
                 telegram.send_with_budget(
                     chat_id, e.get("text", ""),
-                    log_text=e.get("log_text"),
-                    fmt=e.get("format", ""),
-                    is_progress=e.get("is_progress", False)
-                )
-            elif e_type == "typing_start" and chat_id:
-                telegram.get_tg().send_chat_action(chat_id, "typing")
-            elif e_type == "task_done":
-                state.update_budget_from_usage(e)
-                # Remove from running queue if needed
-                task_id = e.get("task_id")
-                from supervisor.queue import RUNNING, persist_queue_snapshot, _queue_lock
-                with _queue_lock:
-                    if task_id in RUNNING:
-                        del RUNNING[task_id]
-                        persist_queue_snapshot(reason="task_done")
-        except builtin_queue.Empty:
-            continue
-        except Exception as exc:
-            log.error(f"Event processing error: {exc}", exc_info=True)
-            time.sleep(1)
+def set_commands(repo_dir: pathlib.Path, drive_root: pathlib.Path):
+    commands = [
+        {"command": "start", "description": "Запуск и приветствие"},
+        {"command": "status", "description": "Общий статус и бюджет"},
+        {"command": "restart", "description": "Перезапуск системы"},
+        {"command": "cancel", "description": "Отмена всех задач"},
+        {"command": "identity", "description": "Кто я (манифест)"},
+        {"command": "bg_start", "description": "Включить фоновое сознание"},
+        {"command": "bg_stop", "description": "Выключить фоновое сознание"},
+        {"command": "help", "description": "Справка по командам"}
+    ]
+    telegram.set_commands(commands)
+
+
+def handle_system_command(chat_id, text, repo_dir, drive_root):
+    cmd = text.split()[0].lower()
+    st = load_state()
+    
+    if cmd == "/restart":
+        sha = run_cmd(["git", "rev-parse", "HEAD"], cwd=str(repo_dir)).strip()
+        verify_path = drive_root / "state" / "pending_restart_verify.json"
+        write_text(str(verify_path), json.dumps({
+            "ts": utc_now_iso(), "expected_sha": sha, "reason": "owner_command"
+        }))
+        append_jsonl(drive_root / "logs" / "supervisor.jsonl", {
+            "ts": utc_now_iso(), "type": "restart_request", "reason": "owner_command"
+        })
+        telegram.send_with_budget(chat_id, "🔄 Перезапуск системы инициирован...")
+        sys.exit(0)
+        return True
+
+    if cmd == "/cancel":
+        count = queue.cancel_all_tasks()
+        telegram.send_with_budget(chat_id, f"🛑 Все задачи отменены. Очищено: {count}")
+        return True
+
+    if cmd == "/status":
+        budget_info = f"💰 Бюджет: {st.get('openrouter_daily_usd', 0):.4f}$ / {state.TOTAL_BUDGET_LIMIT}$"
+        version_path = repo_dir / "VERSION"
+        version = f"📦 Версия: {version_path.read_text().strip() if version_path.exists() else 'unknown'}"
+def handle_system_command(chat_id: int, text: str, tg_client: telegram.TelegramClient):
+    if not text.startswith("/"):
+        return False
+        
+    cmd = text.split()[0].lower()
+    
+    if cmd == "/restart":
+        tg_client.send_message(chat_id, "🔄 Запрашиваю перезапуск системы...")
+        write_text(DRIVE_ROOT / "state" / "restart.lock", utc_now_iso())
+        return True
+        
+    if cmd == "/cancel":
+        tg_client.send_message(chat_id, "🛑 Отменяю все активные и ожидающие задачи...")
+        queue.cancel_all_tasks()
+        return True
+        
+    if cmd == "/identity":
+        identity_path = DRIVE_ROOT / "memory" / "identity.md"
+        if identity_path.exists():
+            content = identity_path.read_text(encoding="utf-8")
+            tg_client.send_message(chat_id, f"<b>Моя Идентичность:</b>\n\n{content}", parse_mode="HTML")
+        else:
+            tg_client.send_message(chat_id, "❌ Файл identity.md не найден.")
+        return True
+        
+    if cmd == "/status":
+        st = load_state(DRIVE_ROOT)
+        spent = float(st.get("openrouter_total_usd") or 0.0)
+        total = TOTAL_BUDGET
+        ver_file = DRIVE_ROOT.parent / "VERSION"
+        ver = ver_file.read_text().strip() if ver_file.exists() else "?.?.?"
+        msg = (
+            f"<b>Статус Хорса</b>\n"
+            f"Версия: <code>{ver}</code>\n"
+            f"Бюджет: <code>${spent:.4f} / ${total:.2f}</code>\n"
+            f"Фоновое сознание: <code>{'ВКЛ' if st.get('evolution_mode_enabled') else 'ВЫКЛ'}</code>\n"
+            f"Задач в очереди: <code>{len(queue.get_pending_tasks())}</code>"
+        )
+        tg_client.send_message(chat_id, msg, parse_mode="HTML")
+        return True
+
+    if cmd == "/help":
+        msg = (
+            "<b>Доступные команды:</b>\n\n"
+            "/status - Состояние системы и бюджет\n"
+            "/restart - Перезапуск (применяет изменения кода)\n"
+            "/cancel - Остановить все текущие задачи\n"
+            "/identity - Показать мой манифест\n"
+            "/bg_start - Запустить фоновое мышление\n"
+            "/bg_stop - Остановить фоновое мышление\n"
+            "/help - Эта справка"
+        )
+        tg_client.send_message(chat_id, msg, parse_mode="HTML")
+        return True
+
+    return False
 
 def main():
-    _kill_previous_instance()
-    _write_pid()
-    log.info("Khors initialization started.")
+        telegram.send_with_budget(chat_id, f"🤖 *Статус Хорса*\n\n{version}\n{budget_info}\n{tasks}", parse_mode="Markdown")
+        return True
 
+    if cmd == "/identity":
+        path = drive_root / "memory" / "identity.md"
+        content = path.read_text() if path.exists() else "Идентичность не найдена."
+        telegram.send_with_budget(chat_id, f"👤 *Мой Манифест*\n\n{content}", parse_mode="Markdown")
+        return True
+
+    return False
+
+
+def main():
     # 1. Configuration from Environment
     REPO_DIR = pathlib.Path(os.environ.get("REPO_DIR", os.getcwd()))
     DRIVE_ROOT = pathlib.Path(os.environ.get("DRIVE_ROOT", os.path.join(os.getcwd(), "data")))
@@ -130,11 +212,22 @@ def main():
     # Client
     tg_client = TelegramClient(TELEGRAM_TOKEN)
     
-    # Telegram module
+    # Set bot commands
+    log.info("Setting bot commands...")
+    tg_client.set_commands([
+        {"command": "start", "description": "Запуск и приветствие"},
+        {"command": "status", "description": "Статус, бюджет и версия"},
+        {"command": "restart", "description": "Перезапуск системы"},
+        {"command": "cancel", "description": "Отменить все задачи"},
+        {"command": "bg_start", "description": "Включить фоновое сознание"},
+        {"command": "bg_stop", "description": "Выключить фоновое сознание"},
+        {"command": "identity", "description": "Кто я? (identity.md)"},
+        {"command": "help", "description": "Справка по командам"}
+    ])
     log.info("Initializing telegram module")
-    telegram.init(
-        drive_root=DRIVE_ROOT,
-        total_budget_limit=TOTAL_BUDGET,
+                        if chat_id and text:
+                             if not handle_system_command(chat_id, text, tg_client):
+                                 threading.Thread(target=workers.handle_chat_direct, args=(chat_id, text), daemon=True).start()
         budget_report_every=10,
         tg_client=tg_client
     )

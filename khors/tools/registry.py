@@ -92,6 +92,7 @@ CORE_TOOL_NAMES = {
     "read_file", "write_file", "edit_file", "edit_file_by_lines",
     "multi_edit_file", "delete_file", "move_file", "list_directory",
     "get_file_info", "search_files", "web_fetch",
+    "system_pulse", "codebase_health",
 }
 
 

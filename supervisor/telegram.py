@@ -106,6 +106,19 @@ class TelegramClient:
             log.debug("Failed to send chat action to chat_id=%d", chat_id, exc_info=True)
             return False
 
+    def set_commands(self, commands: List[Dict[str, str]]) -> bool:
+        """Set the list of the bot's commands. commands is a list of {'command': '...', 'description': '...'}"""
+        try:
+            r = requests.post(
+                f"{self.base}/setMyCommands",
+                json={"commands": commands},
+                timeout=10,
+            )
+            return r.status_code == 200
+        except Exception:
+            log.error("Failed to set bot commands", exc_info=True)
+            return False
+
     def send_photo(self, chat_id: int, photo_bytes: bytes,
                    caption: str = "") -> Tuple[bool, str]:
         """Send a photo to a chat. photo_bytes is raw PNG/JPEG data."""

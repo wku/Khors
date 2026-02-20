@@ -241,6 +241,30 @@ def cancel_task_by_id(task_id: str) -> bool:
     return False
 
 
+def cancel_all_tasks() -> int:
+    """Cancel all tasks in PENDING and RUNNING."""
+    from supervisor import workers
+    count = 0
+    with _queue_lock:
+        count += len(PENDING)
+        PENDING.clear()
+        
+        count += len(RUNNING)
+        for task_id in list(RUNNING.keys()):
+            RUNNING.pop(task_id, None)
+            
+        for w in workers.WORKERS.values():
+            if w.busy_task_id:
+                w.busy_task_id = None
+                if w.proc.is_alive():
+                    w.proc.terminate()
+                w.proc.join(timeout=5)
+                workers.respawn_worker(w.wid)
+        
+        persist_queue_snapshot(reason="cancel_all")
+    return count
+
+
 # ---------------------------------------------------------------------------
 # Timeout enforcement
 # ---------------------------------------------------------------------------

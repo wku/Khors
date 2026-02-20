@@ -1,8 +1,10 @@
 """Codebase health tool — complexity metrics and self-assessment."""
 
+import json
 import logging
 import os
 import pathlib
+import subprocess
 from typing import Any, Dict
 
 from khors.tools.registry import ToolContext, ToolEntry
@@ -10,7 +12,76 @@ from khors.tools.registry import ToolContext, ToolEntry
 log = logging.getLogger(__name__)
 
 
-def _codebase_health(ctx: ToolContext) -> str:
+def system_pulse(ctx: ToolContext) -> str:
+    """Check core system health: budget, git, filesystem, environment, versions."""
+    results = []
+    lines = ["## System Pulse Report\n"]
+
+    # 1. Budget
+    try:
+        state_path = ctx.drive_path("state/state.json")
+        if state_path.exists():
+            state = json.loads(state_path.read_text(encoding="utf-8"))
+            spent = state.get("spent_usd", 0)
+            results.append(f"✅ **Budget:** ${spent:.4f} spent")
+        else:
+            results.append("⚠️ **Budget:** state.json not found")
+    except Exception as e:
+        results.append(f"❌ **Budget check failed:** {e}")
+
+    # 2. Git
+    try:
+        res = subprocess.run(
+            ["git", "status", "--porcelain"],
+            cwd=str(ctx.repo_dir), capture_output=True, text=True, timeout=5
+        )
+        if res.stdout.strip():
+            results.append(f"⚠️ **Git:** Uncommitted changes detected\n```\n{res.stdout.strip()}\n```")
+        else:
+            results.append("✅ **Git:** Clean")
+    except Exception as e:
+        results.append(f"❌ **Git check failed:** {e}")
+
+    # 3. Filesystem
+    try:
+        test_file = ctx.drive_path("health_test.tmp")
+        test_file.write_text("test", encoding="utf-8")
+        if test_file.read_text(encoding="utf-8") == "test":
+            test_file.unlink()
+            results.append("✅ **Filesystem:** Read/Write OK")
+        else:
+            results.append("❌ **Filesystem:** Integrity check failed")
+    except Exception as e:
+        results.append(f"❌ **Filesystem check failed:** {e}")
+
+    # 4. Environment
+    api_key = os.environ.get("OPENROUTER_API_KEY")
+    if api_key and len(api_key) > 10:
+        results.append(f"✅ **Environment:** OPENROUTER_API_KEY set (len={len(api_key)})")
+    else:
+        results.append("❌ **Environment:** OPENROUTER_API_KEY missing or too short")
+
+    # 5. Version Sync
+    try:
+        version_path = ctx.repo_path("VERSION")
+        pyproject_path = ctx.repo_path("pyproject.toml")
+        if version_path.exists() and pyproject_path.exists():
+            version = version_path.read_text(encoding="utf-8").strip()
+            pyproject = pyproject_path.read_text(encoding="utf-8")
+            if f'version = "{version}"' in pyproject or f"version = '{version}'" in pyproject:
+                results.append(f"✅ **Version:** {version} (Synced with pyproject.toml)")
+            else:
+                results.append(f"⚠️ **Version:** {version} (Desync with pyproject.toml)")
+        else:
+            results.append("⚠️ **Version:** VERSION or pyproject.toml missing")
+    except Exception as e:
+        results.append(f"❌ **Version check failed:** {e}")
+
+    lines.extend(results)
+    return "\n".join(lines)
+
+
+def codebase_health(ctx: ToolContext) -> str:
     """Compute and format codebase health report."""
     try:
         from khors.review import collect_sections, compute_complexity_metrics
@@ -75,5 +146,10 @@ def get_tools():
             "name": "codebase_health",
             "description": "Get codebase complexity metrics: file sizes, longest functions, modules exceeding limits. Useful for self-assessment per Bible Principle 5 (Minimalism).",
             "parameters": {"type": "object", "properties": {}, "required": []},
-        }, _codebase_health),
+        }, codebase_health),
+        ToolEntry("system_pulse", {
+            "name": "system_pulse",
+            "description": "Check core system health: budget, git status, filesystem access, environment variables, and version synchronization. Use this to verify operational integrity.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        }, system_pulse),
     ]
