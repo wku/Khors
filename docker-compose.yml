@@ -1,0 +1,19 @@
+version: '3.8'
+
+services:
+  khors:
+    build: .
+    container_name: khors
+    restart: unless-stopped
+    volumes:
+      - .:/app
+      - ./data:/app/data
+    env_file:
+      - .env
+    environment:
+      - REPO_DIR=/app
+      - DRIVE_ROOT=/app/data
+      - PYTHONUNBUFFERED=1
+    # Entrypoint to run the supervisor or agent directly
+    # this starts the supervisor
+    command: python -m supervisor.launcher

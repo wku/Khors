@@ -1,0 +1,12 @@
+data/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.git
+.gitignore
+archive/
+.DS_Store
+.venv/
+uv.lock
