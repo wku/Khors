@@ -10,12 +10,8 @@ import sys
 import threading
 import time
 
-try:
-    from dotenv import load_dotenv
-    load_dotenv()
-except ImportError:
-    pass
-
+from dotenv import load_dotenv
+load_dotenv()
 # Ensure we can import from current directory
 sys.path.append(os.getcwd())
 

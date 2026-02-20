@@ -3,7 +3,14 @@ name = "khors"
 version = "0.1.0"
 description = "Self-creating agent"
 requires-python = ">=3.10"
-
+dependencies = [
+    "openai>=1.0.0",
+    "requests",
+    "playwright",
+    "playwright-stealth",
+    "python-dotenv",
+    "jsonpath-ng",
+]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 test_patterns = ["test_*.py", "test_*"]
