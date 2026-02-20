@@ -98,10 +98,10 @@ def _build_memory_sections(memory: Memory) -> List[str]:
     sections = []
 
     scratchpad_raw = memory.load_scratchpad()
-    sections.append("## Scratchpad\n\n" + clip_text(scratchpad_raw, 90000))
+    sections.append("## Scratchpad\n\n" + clip_text(scratchpad_raw, 20000))
 
     identity_raw = memory.load_identity()
-    sections.append("## Identity\n\n" + clip_text(identity_raw, 80000))
+    sections.append("## Identity\n\n" + clip_text(identity_raw, 20000))
 
     # Dialogue summary (key moments from chat history)
     summary_path = memory.drive_root / "memory" / "dialogue_summary.md"
@@ -322,10 +322,10 @@ def build_llm_messages(
     needs_full_context = task_type in ("evolution", "review", "scheduled")
     static_text = (
         base_prompt + "\n\n"
-        + "## BIBLE.md\n\n" + clip_text(bible_md, 180000)
+        + "## BIBLE.md\n\n" + clip_text(bible_md, 20000)
     )
     if needs_full_context:
-        static_text += "\n\n## README.md\n\n" + clip_text(readme_md, 180000)
+        static_text += "\n\n## README.md\n\n" + clip_text(readme_md, 20000)
 
     # Semi-stable content: identity, scratchpad, knowledge
     # These change ~once per task, not per round
@@ -341,8 +341,17 @@ def build_llm_messages(
     semi_stable_text = "\n\n".join(semi_stable_parts)
 
     # Dynamic content: changes every round
+    try:
+        sd = json.loads(state_json)
+        # Remove potentially confusing token stats from LLM view if they are too large
+        for key in ["spent_tokens_prompt", "spent_tokens_completion", "spent_tokens_cached", "spent_tokens_cache_write"]:
+            sd.pop(key, None)
+        state_json_clean = json.dumps(sd, ensure_ascii=False, indent=2)
+    except Exception:
+        state_json_clean = state_json
+
     dynamic_parts = [
-        "## Drive state\n\n" + clip_text(state_json, 90000),
+        "## Drive state\n\n" + clip_text(state_json_clean, 10000),
         _build_runtime_section(env, task),
     ]
 
@@ -364,11 +373,19 @@ def build_llm_messages(
 
     dynamic_text = "\n\n".join(dynamic_parts)
 
-    # System message with 3 content blocks for optimal caching
+    # Reorder system message components for better instruction following (instructions last)
+    system_content = (
+        "## Context & History\n\n"
+        + dynamic_text + "\n\n"
+        + semi_stable_text + "\n\n"
+        + "## Instructions & Principles\n\n"
+        + static_text
+    )
+
     messages: List[Dict[str, Any]] = [
         {
             "role": "system",
-            "content": static_text + "\n\n" + semi_stable_text + "\n\n" + dynamic_text,
+            "content": system_content,
         },
         {"role": "user", "content": _build_user_content(task)},
     ]

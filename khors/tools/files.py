@@ -30,14 +30,14 @@ def _read_file(ctx: ToolContext, path: str, start_line: Optional[int] = None, en
     try:
         content = target.read_text(encoding="utf-8")
         if start_line is None and end_line is None:
-            return f"<file_content path=\"{path}\">\n{content}\n</file_content>"
+            return f"### File: {path}\n\n<file_content path=\"{path}\">\n{content}\n</file_content>"
         
         lines = content.splitlines()
         start = (start_line - 1) if start_line else 0
         end = end_line if end_line else len(lines)
         selected_lines = lines[start:end]
         joined = "\n".join(selected_lines)
-        return f"<file_content path=\"{path}\">\n{joined}\n</file_content>"
+        return f"### File: {path} (lines {start_line or 1}-{end_line or len(lines)})\n\n<file_content path=\"{path}\">\n{joined}\n</file_content>"
     except Exception as e:
         return f"⚠️ Error reading file: {e}"
 
