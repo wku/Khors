@@ -1,12 +1,23 @@
 import sys
 import logging
 from openai import OpenAI
+import pathlib
+import queue as builtin_queue
+import sys
+import os
 
 logging.basicConfig(level=logging.INFO, format="[%(levelname)s] %(message)s")
 log = logging.getLogger(__name__)
 
+from dotenv import load_dotenv
+
+_PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
+load_dotenv("./../.env")
+sys.path.append(os.getcwd())
+
 OPENROUTER_URL = "https://openrouter.ai/api/v1"
-OPENROUTER_KEY = "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"
+OPENROUTER_API_KEY = os.environ.get("OPENROUTER_API_KEY") 
+print(OPENROUTER_API_KEY)
 MODEL = "google/gemini-2.5-flash"
 
 
@@ -15,7 +26,7 @@ def describe_file(path: str) -> str:
         code = f.read()
     client = OpenAI(
     base_url=OPENROUTER_URL,
-    api_key=OPENROUTER_KEY,
+    api_key=OPENROUTER_API_KEY,
     timeout=60,
     default_headers={
         "HTTP-Referer": "http://localhost",
