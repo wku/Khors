@@ -178,3 +178,5 @@ Telegram/API --> docker-compose / локальный запуск (uv)
 ## Лицензия
 
 [MIT License](LICENSE)
+
+This is a test change.
