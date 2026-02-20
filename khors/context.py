@@ -367,7 +367,7 @@ def build_llm_messages(
     if health_section:
         dynamic_parts.append(health_section)
 
-    dynamic_parts.extend(_build_recent_sections(memory, env, task_id=task.get("id", "")))
+    dynamic_parts.extend(_build_recent_sections(memory))
 
     if str(task.get("type") or "") == "review" and review_context_builder is not None:
         try:
