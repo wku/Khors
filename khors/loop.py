@@ -28,7 +28,6 @@ log = logging.getLogger(__name__)
 # Pricing from OpenRouter API (2026-02-17). Update periodically via /api/v1/models.
 _MODEL_PRICING_STATIC = {
     "anthropic/claude-opus-4.6": (5.0, 0.5, 25.0),
-    "anthropic/claude-opus-4": (15.0, 1.5, 75.0),
     "anthropic/claude-sonnet-4": (3.0, 0.30, 15.0),
     "anthropic/claude-sonnet-4.6": (3.0, 0.30, 15.0),
     "anthropic/claude-sonnet-4.5": (3.0, 0.30, 15.0),
@@ -183,6 +182,10 @@ def _execute_single_tool(
     })
 
     is_error = (not tool_ok) or str(result).startswith("⚠️")
+
+    # ДОБАВЛЕННЫЙ ВЫВОД ДЛЯ ДЕБАГА
+    print(f"\n[DEBUG_TOOL] Executed {fn_name}({args_for_log}) -> Error: {is_error}")
+    print(f"[DEBUG_TOOL] Result preview: {str(result)[:500]}")
 
     return {
         "tool_call_id": tool_call_id,
@@ -691,10 +694,15 @@ def run_llm_loop(
                     messages = compact_tool_history(messages, keep_recent=6)
 
             # --- LLM call with retry ---
+            print(f"\n[DEBUG_LLM_REQUEST] Messages count: {len(messages)}")
+            print(f"[DEBUG_LLM_REQUEST] Last msg: {str(messages[-1])[:500] if messages else 'None'}")
+            
             msg, cost = _call_llm_with_retry(
                 llm, messages, active_model, tool_schemas, active_effort,
                 max_retries, drive_logs, task_id, round_idx, event_queue, accumulated_usage, task_type
             )
+            
+            print(f"\n[DEBUG_LLM_RESPONSE] Model returned: {str(msg)[:1000]}")
 
             # Fallback to another model if primary model returns empty responses
             if msg is None:
@@ -909,6 +917,7 @@ def _call_llm_with_retry(
             return msg, cost
 
         except Exception as e:
+            print(f"\n[DEBUG_LLM_ERROR] Attempt {attempt + 1} failed with error: {e}")
             last_error = e
             append_jsonl(drive_logs / "events.jsonl", {
                 "ts": utc_now_iso(), "type": "llm_api_error",

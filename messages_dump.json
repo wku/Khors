@@ -1,0 +1,31 @@
+[
+  {
+    "role": "user",
+    "content": "прочти файл VERSION и скажи что внутри"
+  },
+  {
+    "role": "system",
+    "content": "Note: You have 43 core tools loaded. There are 22 additional tools available (use `list_available_tools` to see them, `enable_tools` to activate). Core tools cover most tasks. Enable extras only when needed."
+  },
+  {
+    "role": "assistant",
+    "content": "",
+    "tool_calls": [
+      {
+        "id": "tool_read_file_JCUt9J6T1HgWIjUBnc7i",
+        "function": {
+          "arguments": "{\"path\":\"VERSION\"}",
+          "name": "read_file"
+        },
+        "type": "function",
+        "index": 0
+      }
+    ]
+  },
+  {
+    "role": "tool",
+    "tool_call_id": "tool_read_file_JCUt9J6T1HgWIjUBnc7i",
+    "name": "read_file",
+    "content": "<file_content path=\"VERSION\">\n0.1.0\n\n</file_content>"
+  }
+]
