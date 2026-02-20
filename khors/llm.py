@@ -14,7 +14,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 log = logging.getLogger(__name__)
 
-DEFAULT_LIGHT_MODEL = "google/gemini-3-pro-preview"
+DEFAULT_LIGHT_MODEL = "google/gemini-2.5-flash"  # Fast and cheap: $0.3/M input
 
 
 def normalize_reasoning_effort(value: str, default: str = "medium") -> str:
