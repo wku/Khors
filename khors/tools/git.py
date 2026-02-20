@@ -70,9 +70,12 @@ def _run_pre_push_tests(ctx: ToolContext) -> Optional[str]:
         return None
 
     try:
+        env = os.environ.copy()
+        env["PYTHONPATH"] = str(ctx.repo_dir)
         result = subprocess.run(
             ["pytest", "tests/", "-q", "--tb=line", "--no-header"],
             cwd=ctx.repo_dir,
+            env=env,
             capture_output=True,
             text=True,
             timeout=30
