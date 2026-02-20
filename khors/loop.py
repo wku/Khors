@@ -669,6 +669,7 @@ def run_llm_loop(
         MAX_ROUNDS = 200
         log.warning("Invalid KHORS_MAX_ROUNDS, defaulting to 200")
     round_idx = 0
+    _text_tc_retries = 0
     try:
         while True:
             round_idx += 1
@@ -775,22 +776,29 @@ def run_llm_loop(
 
             tool_calls = msg.get("tool_calls") or []
             content = msg.get("content")
-            # No tool calls — final response (or text-encoded tool calls detection)
+            # No tool calls — final response or text-encoded tool calls
             if not tool_calls:
-                if content and _has_text_tool_calls(content):
+                if content and _text_tc_retries < 3 and _has_text_tool_calls(content):
+                    _text_tc_retries += 1
                     messages.append({"role": "assistant", "content": content})
                     messages.append({
                         "role": "system",
                         "content": (
-                            "[TOOL_CALL_FORMAT_ERROR] You wrote tool calls as plain text instead of "
-                            "using the API tool_calls mechanism. Do not write tool names with JSON "
-                            "in your message text. Use actual tool_calls to invoke tools. "
-                            "Re-invoke the tools you intended to call."
+                            "[TOOL_CALL_FORMAT_ERROR] You are writing tool calls as plain text "
+                            f"(attempt {_text_tc_retries}/3). This does NOT execute tools. "
+                            "You MUST use the function calling API to invoke tools. "
+                            "Do NOT write tool_name{{...}} in your message. "
+                            "Instead, return a proper tool_calls response. "
+                            "If you cannot use tool_calls, describe what you need in words "
+                            "and finish your response."
                         )
                     })
                     emit_progress("Re-prompting: model wrote tool calls as text")
                     continue
+                _text_tc_retries = 0
                 return _handle_text_response(content, llm_trace, accumulated_usage)
+
+            _text_tc_retries = 0
 
             # Process tool calls
             messages.append({"role": "assistant", "content": content or "", "tool_calls": tool_calls})
@@ -1009,6 +1017,15 @@ def _process_tool_results(
             "name": fn_name,
             "content": truncated_result
         })
+
+        if not is_error and len(truncated_result) > 200:
+            messages.append({
+                "role": "system",
+                "content": (
+                    f"[TOOL_OK] '{fn_name}' returned {len(truncated_result)} chars. "
+                    f"Read the tool result above. Do not claim the tool failed or returned only metadata."
+                )
+            })
 
         # Append to LLM trace
         llm_trace["tool_calls"].append({
