@@ -339,7 +339,7 @@ def build_llm_messages(
     if kb_index_path.exists():
         kb_index = kb_index_path.read_text(encoding="utf-8")
         if kb_index.strip():
-            semi_stable_parts.append("## Knowledge base\n\n" + clip_text(kb_index, 50000))
+            semi_stable_parts.append("[KNOWLEDGE BASE]\n" + clip_text(kb_index, 50000))
 
     semi_stable_text = "\n\n".join(semi_stable_parts)
 
@@ -358,7 +358,7 @@ def build_llm_messages(
         state_json_clean = state_json
 
     dynamic_parts = [
-        "## Drive state\n\n" + clip_text(state_json_clean, 5000),
+        "[DRIVE STATE]\n" + clip_text(state_json_clean, 5000),
         _build_runtime_section(env, task),
     ]
 
@@ -380,20 +380,20 @@ def build_llm_messages(
 
     dynamic_text = "\n\n".join(dynamic_parts)
 
-    # Reorder system message components for better instruction following (instructions last)
-    # Bible P3/P4: Ensure model focuses on conversation history for tool results
     attention_anchor = (
-        "\n\n> [!IMPORTANT]\n"
-        "> Actual contents of files and final results of tool executions are ONLY available in the conversation history (role: tool messages).\n"
-        "> If you see 'SUCCESS' in summaries but don't see content, look at the very end of our dialogue.\n"
+        "\n=================================================================\n"
+        "CRITICAL INSTRUCTION: The actual contents of read files and results of tool executions\n"
+        "are ONLY available in the conversation history below (in messages with role 'tool').\n"
+        "DO NOT assume you have the file content just because a summary says 'SUCCESS'.\n"
+        "If you just called read_file, READ THE TOOL MESSAGE that follows.\n"
+        "=================================================================\n"
     )
     
+    # Simple top-down structure: Rules -> Identity -> State -> Anchor -> [User/Tool messages follow]
     system_content = (
-        "## Context & History\n\n"
-        + dynamic_text + "\n\n"
+        static_text + "\n\n"
         + semi_stable_text + "\n\n"
-        + "## Instructions & Principles\n\n"
-        + static_text
+        + dynamic_text + "\n\n"
         + attention_anchor
     )
 
@@ -440,10 +440,7 @@ def apply_message_token_soft_cap(
         "trimmed_sections": [],
     }
 
-    if soft_cap_tokens <= 0 or estimated <= soft_cap_tokens:
-        return messages, info
-
-    prunable = ["## Recent chat", "## Recent progress", "## Recent tools", "## Recent events", "## Supervisor"]
+    prunable = ["[RECENT CHAT]", "[RECENT PROGRESS]", "[RECENT ERRORS]"]
     pruned = copy.deepcopy(messages)
     for prefix in prunable:
         if estimated <= soft_cap_tokens:
@@ -462,7 +459,7 @@ def apply_message_token_soft_cap(
                     skip_section = True
                     info["trimmed_sections"].append(prefix)
                     continue
-                if line.startswith("##"):
+                if skip_section and line.startswith("["): # Next section starts
                     skip_section = False
                 if not skip_section:
                     new_lines.append(line)
