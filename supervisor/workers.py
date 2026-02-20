@@ -261,6 +261,9 @@ def worker_main(wid: int, in_q: Any, out_q: Any, repo_dir: str, drive_root: str)
     import pathlib as _pathlib
     _sys.path.insert(0, repo_dir)
     _drive = _pathlib.Path(drive_root)
+    import os as _os
+    key = _os.environ.get("OPENROUTER_API_KEY")
+    print(f"\n[WORKER {wid} INIT] OPENROUTER_API_KEY present: {bool(key)}")
     try:
         from khors.agent import make_agent
         agent = make_agent(repo_dir=repo_dir, drive_root=drive_root, event_queue=out_q)
