@@ -11,7 +11,7 @@ import threading
 import time
 
 from dotenv import load_dotenv
-load_dotenv()
+load_dotenv(".env")
 # Ensure we can import from current directory
 sys.path.append(os.getcwd())
 
