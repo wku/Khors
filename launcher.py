@@ -66,6 +66,7 @@ def _write_pid():
     _startup_lock.unlink(missing_ok=True)
 
 def process_events_loop():
+    import queue as _queue
     event_q = workers.get_event_q()
     log.info("Event processor started.")
     while True:
@@ -75,16 +76,18 @@ def process_events_loop():
                 continue
             e_type = e.get("type", "")
             chat_id = e.get("chat_id")
-            
+
             if e_type == "send_message" and chat_id:
                 telegram.send_with_budget(
-                    chat_id, e.get("text", ""), 
+                    chat_id, e.get("text", ""),
                     parse_mode=e.get("parse_mode", "")
                 )
+        except _queue.Empty:
+            pass
         except Exception as e:
-            if not isinstance(e, threading.ThreadError): # Ignore queue timeout
-                log.error(f"Event processor error: {e}")
+            log.error(f"Event processor error: {e}")
             time.sleep(0.1)
+
 
 def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, repo_dir: pathlib.Path, drive_root: pathlib.Path, total_budget: float):
     if not text.startswith("/"):
