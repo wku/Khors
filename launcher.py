@@ -14,6 +14,11 @@ from dotenv import load_dotenv
 # Add current directory to sys.path to import khors and supervisor
 sys.path.append(os.getcwd())
 
+import shutil
+
+for _p in pathlib.Path(os.getcwd()).rglob("__pycache__"):
+    shutil.rmtree(_p, ignore_errors=True)
+
 from supervisor import state, telegram, workers, queue
 from supervisor.state import load_state, save_state, append_jsonl
 from supervisor.telegram import TelegramClient
@@ -31,6 +36,7 @@ logging.basicConfig(
 log = logging.getLogger("launcher")
 
 _PID_FILE = _PROJECT_ROOT / "data" / "launcher.pid"
+
 
 def _kill_previous_instance():
     try:
@@ -59,11 +65,13 @@ def _kill_previous_instance():
     except (ValueError, OSError, FileNotFoundError):
         pass
 
+
 def _write_pid():
     _PID_FILE.parent.mkdir(parents=True, exist_ok=True)
     _PID_FILE.write_text(str(os.getpid()))
     _startup_lock = _PROJECT_ROOT / "data" / "state" / "startup_verify.lock"
     _startup_lock.unlink(missing_ok=True)
+
 
 def process_events_loop():
     import queue as _queue
@@ -92,10 +100,10 @@ def process_events_loop():
 def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, repo_dir: pathlib.Path, drive_root: pathlib.Path, total_budget: float):
     if not text.startswith("/"):
         return False
-        
+
     cmd = text.split()[0].lower()
     st = load_state()
-    
+
     if cmd == "/restart":
         tg_client.send_message(chat_id, "🔄 Перезапуск системы инициирован...")
         # Create a lock file for supervisor to know it should restart
@@ -133,12 +141,16 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
         return True
 
     if cmd == "/bg_start":
-        st = load_state(); st["evolution_mode_enabled"] = True; save_state(st)
+        st = load_state();
+        st["evolution_mode_enabled"] = True;
+        save_state(st)
         tg_client.send_message(chat_id, "🧠 Фоновое сознание активировано.")
         return True
 
     if cmd == "/bg_stop":
-        st = load_state(); st["evolution_mode_enabled"] = False; save_state(st)
+        st = load_state();
+        st["evolution_mode_enabled"] = False;
+        save_state(st)
         tg_client.send_message(chat_id, "💤 Фоновое сознание остановлено.")
         return True
 
@@ -146,12 +158,12 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
         if queue.queue_has_task_type("evolution"):
             tg_client.send_message(chat_id, "⏳ Задача эволюции уже в очереди или выполняется.")
             return True
-        
+
         st = load_state()
         cycle = int(st.get("evolution_cycle") or 0) + 1
         tid = uuid.uuid4().hex[:8]
         queue.enqueue_task({
-            "id": tid, 
+            "id": tid,
             "type": "evolution",
             "chat_id": chat_id,
             "text": f"EVOLUTION #{cycle}"
@@ -190,6 +202,7 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
 
     return False
 
+
 def main():
     # 1. Configuration
     REPO_DIR = pathlib.Path(os.environ.get("REPO_DIR", os.getcwd()))
@@ -197,7 +210,7 @@ def main():
     TOTAL_BUDGET = float(os.environ.get("TOTAL_BUDGET", "50.0"))
     TELEGRAM_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN")
     MAX_WORKERS = int(os.environ.get("KHORS_MAX_WORKERS", "5"))
-    
+
     if not TELEGRAM_TOKEN:
         print("TELEGRAM_BOT_TOKEN not found in environment.")
         sys.exit(1)
@@ -208,7 +221,7 @@ def main():
     # 2. Initialize Components
     state.init(DRIVE_ROOT, total_budget_limit=TOTAL_BUDGET)
     queue.init(DRIVE_ROOT, soft_timeout=600, hard_timeout=1800)
-    
+
     tg_client = TelegramClient(TELEGRAM_TOKEN)
     telegram.init(
         drive_root=DRIVE_ROOT,
@@ -246,7 +259,7 @@ def main():
 
     # 4. Start Background Threads
     threading.Thread(target=process_events_loop, daemon=True).start()
-    workers.spawn_workers(n=0) # Ensure worker pool is ready
+    workers.spawn_workers(n=0)  # Ensure worker pool is ready
 
     # 5. Main Loop
     log.info("Khors Supervisor started. Entering main loop.")
@@ -255,6 +268,7 @@ def main():
         try:
             queue.enforce_task_timeouts()
             workers.ensure_workers_healthy()
+            workers.assign_tasks()
 
             updates = tg_client.get_updates(offset=offset, timeout=10)
             for u in updates:
@@ -262,7 +276,7 @@ def main():
                 msg = u.get("message")
                 if not msg:
                     continue
-                
+
                 chat_id = msg.get("chat", {}).get("id")
                 text = msg.get("text", "")
                 if not chat_id or not text:
@@ -274,14 +288,15 @@ def main():
 
                 # 2. Handle as task/chat
                 threading.Thread(
-                    target=workers.handle_chat_direct, 
-                    args=(chat_id, text), 
+                    target=workers.handle_chat_direct,
+                    args=(chat_id, text),
                     daemon=True
                 ).start()
 
         except Exception as e:
             log.error(f"Main loop error: {e}")
             time.sleep(5)
+
 
 if __name__ == "__main__":
     main()
