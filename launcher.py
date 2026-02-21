@@ -18,6 +18,19 @@ import shutil
 for _p in pathlib.Path(os.getcwd()).rglob("__pycache__"):
     shutil.rmtree(_p, ignore_errors=True)
 
+import subprocess as _sp
+_test_env = {**os.environ, "PYTHONPATH": os.getcwd()}
+_pytest_cmd = ["uv", "run", "pytest", "tests/", "-x", "-q", "--tb=short"]
+try:
+    _test_result = _sp.run(_pytest_cmd, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, env=_test_env)
+except FileNotFoundError:
+    _pytest_cmd = [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short"]
+    _test_result = _sp.run(_pytest_cmd, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, env=_test_env)
+if _test_result.returncode != 0:
+    print(f"[STARTUP] Tests FAILED, refusing to start:\n{_test_result.stdout}\n{_test_result.stderr}")
+    sys.exit(1)
+print("[STARTUP] Tests passed")
+
 from supervisor import state, telegram, workers, queue
 from supervisor.state import load_state, save_state, append_jsonl
 from supervisor.telegram import TelegramClient
