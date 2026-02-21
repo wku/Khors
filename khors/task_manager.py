@@ -8,6 +8,7 @@ Extracted from agent.py to follow Single Responsibility Principle.
 from __future__ import annotations
 
 import logging
+import os
 import pathlib
 import queue
 import threading
@@ -62,11 +63,18 @@ class TaskManager:
             )
             self.tools.set_context(ctx)
 
+            max_rounds_str = os.environ.get("KHORS_MAX_ROUNDS", "50")
+            try:
+                max_rounds = int(max_rounds_str)
+            except ValueError:
+                max_rounds = 50
+
             content, usage, _trace = run_llm_loop(
                 llm=self.llm_client,
                 messages=messages,
                 tools=self.tools,
                 model=self.llm_client.default_model(),
+                max_rounds=max_rounds,
                 drive_root=self.env.drive_root,
                 task_id=task_id,
                 task_type=task_type,
