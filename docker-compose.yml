@@ -6,7 +6,6 @@ services:
     container_name: khors
     restart: unless-stopped
     volumes:
-      - .:/app
       - ./data:/app/data
     env_file:
       - .env
@@ -14,6 +13,3 @@ services:
       - REPO_DIR=/app
       - DRIVE_ROOT=/app/data
       - PYTHONUNBUFFERED=1
-    # Entrypoint to run the supervisor or agent directly
-    # this starts the supervisor
-    command: python -m supervisor.launcher

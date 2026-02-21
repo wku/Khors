@@ -6,13 +6,15 @@ FROM python:3.11-slim
 RUN apt-get update && apt-get install -y \
     git \
     curl \
-    && rm -rf /var/lib/apt/lists/*
+    && rm -rf /var/lib/apt/lists/* \
+    && curl -Ls https://astral.sh/uv/install.sh | sh
+
+ENV PATH="/root/.local/bin:$PATH"
 
 WORKDIR /app
 
-# Install Python dependencies
-COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+# Install Python dependencies via uv (reads pyproject.toml automatically)
+RUN uv sync
 
 # Copy application code
 COPY . .
@@ -26,4 +28,4 @@ ENV REPO_DIR=/app
 ENV DRIVE_ROOT=/app/data
 
 # Default command (can be overridden in docker-compose)
-CMD ["python", "launcher.py"]
+CMD ["uv", "run", "launcher.py"]
