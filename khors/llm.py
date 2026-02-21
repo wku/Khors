@@ -160,7 +160,7 @@ class LLMClient:
         messages: List[Dict[str, Any]],
         model: str,
         tools: Optional[List[Dict[str, Any]]] = None,
-        max_tokens: int = 560384,
+        max_tokens: int = 860384,
         tool_choice: str = "auto",
         temperature: float = 0.2,
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:

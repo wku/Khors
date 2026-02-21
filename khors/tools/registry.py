@@ -93,6 +93,7 @@ CORE_TOOL_NAMES = {
     "multi_edit_file", "delete_file", "move_file", "list_directory",
     "get_file_info", "search_files", "web_fetch",
     "system_pulse", "codebase_health",
+    "start_news_agent", "stop_news_agent", "news_agent_status", "create_news_digest",
 }
 
 
@@ -109,22 +110,41 @@ class ToolRegistry:
         self._load_modules()
 
     def _load_modules(self) -> None:
-        """Auto-discover tool modules in khors/tools/ that export get_tools()."""
+        """Auto-discover tool modules in khors/tools/ and khors/tools/extensions/ that export get_tools()."""
         import importlib
         import pkgutil
         import khors.tools as tools_pkg
+        
+        # Load from khors/tools/
         for _importer, modname, _ispkg in pkgutil.iter_modules(tools_pkg.__path__):
-            if modname.startswith("_") or modname == "registry":
+            if modname.startswith("_") or modname == "registry" or modname == "extensions":
                 continue
+            self._load_module_by_name(f"khors.tools.{modname}")
+            
+        # Load from khors/tools/extensions/ if it exists
+        extensions_path = self._ctx.repo_dir / "khors" / "tools" / "extensions"
+        if extensions_path.exists() and extensions_path.is_dir():
             try:
-                mod = importlib.import_module(f"khors.tools.{modname}")
-                if hasattr(mod, "get_tools"):
-                    for entry in mod.get_tools():
-                        self._entries[entry.name] = entry
-            except Exception:
-                import logging
-                logging.getLogger(__name__).warning(
-                    "Failed to load tool module %s", modname, exc_info=True)
+                import khors.tools.extensions as ext_pkg
+                for _importer, modname, _ispkg in pkgutil.iter_modules(ext_pkg.__path__):
+                    if modname.startswith("_"):
+                        continue
+                    self._load_module_by_name(f"khors.tools.extensions.{modname}")
+            except ImportError:
+                # Extension package not initialized properly yet
+                pass
+
+    def _load_module_by_name(self, full_modname: str) -> None:
+        import importlib
+        import logging
+        try:
+            mod = importlib.import_module(full_modname)
+            if hasattr(mod, "get_tools"):
+                for entry in mod.get_tools():
+                    self._entries[entry.name] = entry
+        except Exception:
+            logging.getLogger(__name__).warning(
+                "Failed to load tool module %s", full_modname, exc_info=True)
 
     def set_context(self, ctx: ToolContext) -> None:
         self._ctx = ctx

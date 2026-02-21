@@ -102,6 +102,19 @@ def get_running_task_ids() -> List[str]:
     return [w.busy_task_id for w in WORKERS.values() if w.busy_task_id]
 
 
+def on_task_complete(task_id: str) -> None:
+    """Called from process_events_loop when task_complete event received from worker."""
+    from supervisor import queue
+    with _queue_lock:
+        RUNNING.pop(task_id, None)
+        for w in WORKERS.values():
+            if w.busy_task_id == task_id:
+                w.busy_task_id = None
+                break
+    queue.persist_queue_snapshot(reason="task_complete")
+    log.info(f"[WORKERS] task {task_id} completed, RUNNING cleaned")
+
+
 # ---------------------------------------------------------------------------
 # Chat agent (direct mode)
 # ---------------------------------------------------------------------------
@@ -146,10 +159,19 @@ def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple
         if not task["text"]:
             task["text"] = "(image attached)" if image_data else ""
         log.info(f"[CHAT_DIRECT] calling handle_task id={task['id']}")
-        events = agent.handle_task(task)
-        log.info(f"[CHAT_DIRECT] handle_task done, events={len(events)}")
-        for e in events:
-            get_event_q().put(e)
+        import queue as _queue
+        result_q = _queue.Queue()
+        agent.handle_task(task, result_q)
+        event_q = get_event_q()
+        count = 0
+        while True:
+            try:
+                e = result_q.get_nowait()
+                event_q.put(e)
+                count += 1
+            except _queue.Empty:
+                break
+        log.info(f"[CHAT_DIRECT] handle_task done, events={count}")
     except Exception as e:
         import traceback
         err_msg = f"⚠️ Error: {type(e).__name__}: {e}"
@@ -281,11 +303,17 @@ def worker_main(wid: int, in_q: Any, out_q: Any, repo_dir: str, drive_root: str)
             task = in_q.get()
             if task is None or task.get("type") == "shutdown":
                 break
-            events = agent.handle_task(task)
-            for e in events:
-                e2 = dict(e)
-                e2["worker_id"] = wid
-                out_q.put(e2)
+            import queue as _queue
+            result_q = _queue.Queue()
+            agent.handle_task(task, result_q)
+            while True:
+                try:
+                    e = result_q.get_nowait()
+                    e2 = dict(e)
+                    e2["worker_id"] = wid
+                    out_q.put(e2)
+                except _queue.Empty:
+                    break
         except Exception as _e:
             _log_worker_crash(wid, _drive, "handle_task", _e, _tb.format_exc())
 

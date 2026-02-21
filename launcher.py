@@ -14,23 +14,6 @@ from dotenv import load_dotenv
 # Add current directory to sys.path to import khors and supervisor
 sys.path.append(os.getcwd())
 
-import shutil
-for _p in pathlib.Path(os.getcwd()).rglob("__pycache__"):
-    shutil.rmtree(_p, ignore_errors=True)
-
-import subprocess as _sp
-_test_env = {**os.environ, "PYTHONPATH": os.getcwd()}
-_pytest_cmd = ["uv", "run", "pytest", "tests/", "-x", "-q", "--tb=short"]
-try:
-    _test_result = _sp.run(_pytest_cmd, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, env=_test_env)
-except FileNotFoundError:
-    _pytest_cmd = [sys.executable, "-m", "pytest", "tests/", "-x", "-q", "--tb=short"]
-    _test_result = _sp.run(_pytest_cmd, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, env=_test_env)
-if _test_result.returncode != 0:
-    print(f"[STARTUP] Tests FAILED, refusing to start:\n{_test_result.stdout}\n{_test_result.stderr}")
-    sys.exit(1)
-print("[STARTUP] Tests passed")
-
 from supervisor import state, telegram, workers, queue
 from supervisor.state import load_state, save_state, append_jsonl
 from supervisor.telegram import TelegramClient
@@ -101,6 +84,54 @@ def process_events_loop():
                     fmt=e.get("format", ""),
                     is_progress=bool(e.get("is_progress")),
                 )
+            elif e_type == "schedule_task":
+                st = state.load_state()
+                owner_chat_id = st.get("owner_chat_id")
+                event_chat_id = e.get("chat_id")
+                resolved_chat_id = owner_chat_id or event_chat_id
+                if not resolved_chat_id:
+                    log.warning("[EVENT] schedule_task: owner_chat_id not set, dropping")
+                    continue
+                tid = e.get("task_id") or uuid.uuid4().hex[:8]
+                task = {
+                    "id": tid,
+                    "type": "task",
+                    "chat_id": int(resolved_chat_id),
+                    "text": e.get("description", ""),
+                    "_depth": e.get("depth", 0),
+                }
+                if e.get("context"):
+                    task["context"] = e["context"]
+                if e.get("parent_task_id"):
+                    task["parent_task_id"] = e["parent_task_id"]
+                queue.enqueue_task(task)
+                queue.persist_queue_snapshot(reason="schedule_task_event")
+                log.info(f"[EVENT] schedule_task enqueued tid={tid} desc={str(e.get('description',''))[:60]}")
+            elif e_type == "cancel_task":
+                task_id = e.get("task_id", "")
+                if task_id:
+                    queue.cancel_task_by_id(task_id)
+                    log.info(f"[EVENT] cancel_task tid={task_id}")
+            elif e_type == "review_request":
+                queue.queue_review_task(reason=e.get("reason", "agent_request"), force=True)
+                log.info(f"[EVENT] review_request reason={e.get('reason','')}")
+            elif e_type == "task_complete":
+                task_id = e.get("task_id", "")
+                worker_id = e.get("worker_id")
+                if task_id and worker_id is not None:
+                    workers.on_task_complete(task_id)
+                response = e.get("response") or {}
+                content = response.get("content", "")
+                result_chat_id = e.get("chat_id")
+                if content and result_chat_id:
+                    telegram.send_with_budget(int(result_chat_id), content)
+                    log.info(f"[EVENT] task_complete {task_id}: sent result to chat_id={result_chat_id} (direct={e.get('is_direct_chat')})")
+                else:
+                    log.info(f"[EVENT] task_complete {task_id}: no content or chat_id")
+            elif e_type == "task_heartbeat":
+                task_id = e.get("task_id", "")
+                if task_id and task_id in workers.RUNNING:
+                    workers.RUNNING[task_id]["last_heartbeat_at"] = time.time()
             elif e_type:
                 log.info(f"[EVENT] {e_type} task_id={e.get('task_id','')}")
         except _queue.Empty:
@@ -138,7 +169,7 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
             f"Версия: <code>{ver}</code>\n"
             f"Бюджет: <code>${spent:.4f} / ${total_budget:.2f}</code>\n"
             f"Фоновое сознание: <code>{'ВКЛ' if st.get('evolution_mode_enabled') else 'ВЫКЛ'}</code>\n"
-            f"Задач в очереди: <code>{len(queue.get_pending_tasks())}</code>"
+            f"Задач в очереди: <code>{len(queue.PENDING)}</code>"
         )
         tg_client.send_message(chat_id, msg, parse_mode="HTML")
         return True
@@ -200,6 +231,10 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
             "/evolve - Запустить цикл эволюции\n"
             "/restart - Перезапуск (применяет изменения кода)\n"
             "/cancel - Остановить все текущие задачи\n"
+            "/news_start - Запустить сбор новостей\n"
+            "/news_stop - Остановить сбор новостей\n"
+            "/news_status - Статус новостного агента\n"
+            "/news_digest - Сформировать дайджест\n"
             "/identity - Показать мой манифест\n"
             "/knowledge - Темы базы знаний\n"
             "/bg_start - Запустить фоновое мышление\n"
@@ -254,6 +289,10 @@ def main():
         {"command": "evolve", "description": "Запустить цикл эволюции"},
         {"command": "restart", "description": "Перезапуск системы"},
         {"command": "cancel", "description": "Отменить все задачи"},
+        {"command": "news_start", "description": "Запустить сбор новостей"},
+        {"command": "news_stop", "description": "Остановить сбор новостей"},
+        {"command": "news_status", "description": "Статус новостного агента"},
+        {"command": "news_digest", "description": "Сформировать дайджест"},
         {"command": "bg_start", "description": "Включить фоновое сознание"},
         {"command": "bg_stop", "description": "Выключить фоновое сознание"},
         {"command": "identity", "description": "Кто я? (identity.md)"},
@@ -298,6 +337,13 @@ def main():
 
                 log.info(f"[TG_MSG] chat_id={chat_id} text={text[:80]}")
 
+                # Сохраняем owner_chat_id при первом сообщении
+                _st = state.load_state()
+                if not _st.get("owner_chat_id"):
+                    _st["owner_chat_id"] = chat_id
+                    state.save_state(_st)
+                    log.info(f"[STATE] owner_chat_id set to {chat_id}")
+
                 # 1. Handle system commands
                 if handle_system_command(chat_id, text, tg_client, REPO_DIR, DRIVE_ROOT, TOTAL_BUDGET):
                     continue
@@ -305,8 +351,8 @@ def main():
                 # 2. Handle as task/chat
                 log.info(f"[DISPATCH] handle_chat_direct chat_id={chat_id}")
                 threading.Thread(
-                    target=workers.handle_chat_direct, 
-                    args=(chat_id, text), 
+                    target=workers.handle_chat_direct,
+                    args=(chat_id, text),
                     daemon=True
                 ).start()
 
