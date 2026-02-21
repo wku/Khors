@@ -123,7 +123,9 @@ def _get_chat_agent():
 
 def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple[str, str], Tuple[str, str, str]]] = None) -> None:
     try:
+        log.info(f"[CHAT_DIRECT] start chat_id={chat_id} text={text[:80]}")
         agent = _get_chat_agent()
+        log.info(f"[CHAT_DIRECT] agent ready, busy={agent._busy}")
         task = {
             "id": uuid.uuid4().hex[:8],
             "type": "task",
@@ -143,12 +145,15 @@ def handle_chat_direct(chat_id: int, text: str, image_data: Optional[Union[Tuple
         # Fallback for truly empty messages
         if not task["text"]:
             task["text"] = "(image attached)" if image_data else ""
+        log.info(f"[CHAT_DIRECT] calling handle_task id={task['id']}")
         events = agent.handle_task(task)
+        log.info(f"[CHAT_DIRECT] handle_task done, events={len(events)}")
         for e in events:
             get_event_q().put(e)
     except Exception as e:
         import traceback
         err_msg = f"⚠️ Error: {type(e).__name__}: {e}"
+        log.error(f"[CHAT_DIRECT] error: {err_msg}\n{traceback.format_exc()}")
         append_jsonl(
             DRIVE_ROOT / "logs" / "supervisor.jsonl",
             {
