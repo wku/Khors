@@ -161,7 +161,7 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
         return True
 
     if cmd == "/status":
-        spent = float(st.get("openrouter_total_usd") or 0.0)
+        spent = float(st.get("spent_usd") or 0.0)
         ver_file = repo_dir / "VERSION"
         ver = ver_file.read_text().strip() if ver_file.exists() else "?.?.?"
         msg = (
