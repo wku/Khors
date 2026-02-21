@@ -1,0 +1,21 @@
+#!/bin/sh
+echo "Running pre-commit hook..."
+
+PROJECT_ROOT=$(git rev-parse --show-toplevel)
+cd "$PROJECT_ROOT" || exit 1
+
+find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null
+
+if command -v uv >/dev/null 2>&1; then
+  RUNNER="uv run pytest"
+else
+  RUNNER="PYTHONPATH=. pytest"
+fi
+
+if ! $RUNNER tests/ -x -q --tb=short; then
+  echo "Tests failed! Aborting commit."
+  exit 1
+fi
+
+echo "Pre-commit hook finished successfully."
+exit 0
