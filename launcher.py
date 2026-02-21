@@ -305,8 +305,15 @@ def main():
         log.error("Failed to set bot commands.")
 
     # 4. Start Background Threads
+    append_jsonl(DRIVE_ROOT / "logs" / "supervisor.jsonl", {
+        "ts": utc_now_iso(),
+        "type": "launcher_start"
+    })
     workers.spawn_workers(n=0)
     threading.Thread(target=process_events_loop, daemon=True).start()
+    
+    # Auto-resume work if there was an expected restart
+    workers.auto_resume_after_restart()
 
     # 5. Main Loop
     log.info("Khors Supervisor started. Entering main loop.")

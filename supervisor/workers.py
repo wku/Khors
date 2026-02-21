@@ -210,9 +210,9 @@ def auto_resume_after_restart() -> None:
             return
 
         # Check for recent restart (within 2 minutes)
-        restart_verify_path = DRIVE_ROOT / "state" / "pending_restart_verify.json"
+        state_dir = DRIVE_ROOT / "state"
         recent_restart = False
-        if restart_verify_path.exists():
+        if list(state_dir.glob("pending_restart_verify*.json")):
             recent_restart = True
         else:
             # Check supervisor.jsonl for recent restart event
