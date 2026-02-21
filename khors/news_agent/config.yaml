@@ -1,0 +1,99 @@
+# Конфигурация автономного новостного агента
+
+# Telegram настройки
+telegram:
+  bot_token: "${NEWS_TELEGRAM_BOT_TOKEN}"  # Токен бота
+  chat_id: "${NEWS_TELEGRAM_CHAT_ID}"      # ID чата для отправки
+
+# LLM настройки
+llm:
+  api_key: "${OPENROUTER_API_KEY}"
+  model: "anthropic/claude-3-haiku"
+  max_tokens: 1000
+  temperature: 0.1
+
+# Источники новостей
+news_sources:
+  rss_feeds:
+    - name: "Українська правда"
+      url: "https://www.pravda.com.ua/rss/"
+      category: "general"
+    
+    - name: "BBC Україна"
+      url: "https://feeds.bbci.co.uk/ukrainian/rss.xml"
+      category: "international"
+    
+    - name: "Радіо Свобода"
+      url: "https://www.radiosvoboda.org/api/zrqiteuuir"
+      category: "general"
+    
+    - name: "Дзеркало тижня"
+      url: "https://zn.ua/rss/full.rss"
+      category: "politics"
+    
+    - name: "Економічна правда"
+      url: "https://www.epravda.com.ua/rss/"
+      category: "economy"
+    
+    - name: "Цензор.НЕТ"
+      url: "https://censor.net/includes/news_rss.php"
+      category: "general"
+    
+    - name: "УНІАН"
+      url: "https://www.unian.ua/rss/news.xml"
+      category: "general"
+    
+    - name: "Детектор медіа"
+      url: "https://detector.media/rss"
+      category: "media"
+
+  web_sources:
+    - name: "Офіс Президента"
+      url: "https://www.president.gov.ua/news"
+      selector: ".news-item"
+      category: "politics"
+    
+    - name: "Міністерство оборони"
+      url: "https://www.mil.gov.ua/news/"
+      selector: ".news-list-item"
+      category: "military"
+
+# Расписание дайджестов (часы UTC)
+digest_schedule: [6, 12, 18, 22]  # 9:00, 15:00, 21:00, 01:00 по Киеву
+
+# Настройки сбора
+collection:
+  interval_minutes: 30  # Интервал сбора новостей
+  max_news_per_source: 50  # Максимум новостей с одного источника
+  request_timeout: 30  # Таймаут запросов в секундах
+
+# Настройки анализа
+analysis:
+  min_importance_for_digest: "medium"  # Минимальная важность для дайджеста
+  max_news_per_digest: 15  # Максимум новостей в дайджесте
+  max_critical_news_per_digest: 5  # Максимум критичных новостей
+
+# Настройки хранения
+storage:
+  path: "data/news_agent"
+  max_storage_days: 30  # Хранить данные 30 дней
+  
+# Фильтры
+filters:
+  exclude_keywords:
+    - "реклама"
+    - "акція"
+    - "розіграш"
+    - "конкурс"
+  
+  exclude_sources:
+    - "spam-source.com"
+  
+  min_content_length: 100  # Минимальная длина контента
+
+# Логирование
+logging:
+  level: "INFO"
+  file: "data/news_agent/news_agent.log"
+  max_size_mb: 10
+  backup_count: 5

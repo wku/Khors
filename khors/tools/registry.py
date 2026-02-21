@@ -93,6 +93,7 @@ CORE_TOOL_NAMES = {
     "multi_edit_file", "delete_file", "move_file", "list_directory",
     "get_file_info", "search_files", "web_fetch",
     "system_pulse", "codebase_health",
+    "start_news_agent", "stop_news_agent", "news_agent_status", "create_news_digest",
 }
 
 

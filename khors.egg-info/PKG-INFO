@@ -9,5 +9,9 @@ Requires-Dist: playwright
 Requires-Dist: playwright-stealth
 Requires-Dist: python-dotenv
 Requires-Dist: jsonpath-ng
+Requires-Dist: aiohttp>=3.8.0
+Requires-Dist: feedparser>=6.0.0
+Requires-Dist: beautifulsoup4>=4.11.0
+Requires-Dist: pyyaml>=6.0.0
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0.0; extra == "dev"

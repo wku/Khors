@@ -66,6 +66,7 @@ class TaskManager:
                 llm=self.llm_client,
                 messages=messages,
                 tools=self.tools,
+                model=self.llm_client.default_model(),
                 drive_root=self.env.drive_root,
                 task_id=task_id,
                 task_type=task_type,
@@ -93,7 +94,13 @@ class TaskManager:
 
     def _emit_task_results(self, task: Dict[str, Any], response: Dict[str, Any], result_queue: queue.Queue) -> None:
         task_id = task["id"]
-        result_queue.put({"type": "task_complete", "task_id": task_id, "response": response})
+        result_queue.put({
+            "type": "task_complete",
+            "task_id": task_id,
+            "chat_id": task.get("chat_id"),
+            "is_direct_chat": bool(task.get("_is_direct_chat")),
+            "response": response,
+        })
         event = {
             "timestamp": utc_now_iso(),
             "type": "task_complete",

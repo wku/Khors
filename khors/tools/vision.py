@@ -20,12 +20,10 @@ from khors.tools.registry import ToolContext, ToolEntry
 
 log = logging.getLogger(__name__)
 
-_DEFAULT_VLM_MODEL = "anthropic/claude-sonnet-4.6"
-
-
 def _get_vlm_model() -> str:
     """Get VLM model from env or use default."""
-    return os.environ.get("KHORS_MODEL", _DEFAULT_VLM_MODEL)
+    client = _get_llm_client()
+    return os.environ.get("KHORS_MODEL_VISION") or client.default_model()
 
 
 def _get_llm_client():

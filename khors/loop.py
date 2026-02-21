@@ -30,7 +30,7 @@ def run_llm_loop(
     llm: LLMClient,
     messages: List[Dict[str, Any]],
     tools: ToolRegistry,
-    model: str = "anthropic/claude-sonnet-4",
+    model: str = "",
     max_rounds: int = 50,
     max_retries: int = 3,
     budget_remaining_usd: Optional[float] = None,
@@ -44,6 +44,9 @@ def run_llm_loop(
     """
     Main LLM orchestration loop.
     """
+    if not model:
+        model = llm.default_model()
+        
     if emit_progress is None:
         emit_progress = lambda x: None
 

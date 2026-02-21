@@ -102,6 +102,19 @@ def get_running_task_ids() -> List[str]:
     return [w.busy_task_id for w in WORKERS.values() if w.busy_task_id]
 
 
+def on_task_complete(task_id: str) -> None:
+    """Called from process_events_loop when task_complete event received from worker."""
+    from supervisor import queue
+    with _queue_lock:
+        RUNNING.pop(task_id, None)
+        for w in WORKERS.values():
+            if w.busy_task_id == task_id:
+                w.busy_task_id = None
+                break
+    queue.persist_queue_snapshot(reason="task_complete")
+    log.info(f"[WORKERS] task {task_id} completed, RUNNING cleaned")
+
+
 # ---------------------------------------------------------------------------
 # Chat agent (direct mode)
 # ---------------------------------------------------------------------------
