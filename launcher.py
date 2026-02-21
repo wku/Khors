@@ -252,8 +252,8 @@ def main():
         log.error("Failed to set bot commands.")
 
     # 4. Start Background Threads
+    workers.spawn_workers(n=0)
     threading.Thread(target=process_events_loop, daemon=True).start()
-    workers.spawn_workers(n=0) # Ensure worker pool is ready
 
     # 5. Main Loop
     log.info("Khors Supervisor started. Entering main loop.")
