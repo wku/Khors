@@ -84,12 +84,12 @@ class SystemMonitor:
                 warnings.append("VERSION_FILE_MISSING: VERSION file not found")
                 return warnings
             
-            version_content = read_text(str(version_file)).strip()
+            version_content = read_text(version_file).strip()
             
             # Read pyproject.toml version
             pyproject_file = pathlib.Path(self.repo_path) / "pyproject.toml"
             if pyproject_file.exists():
-                pyproject_content = read_text(str(pyproject_file))
+                pyproject_content = read_text(pyproject_file)
                 
                 # Extract version from pyproject.toml
                 for line in pyproject_content.split('\n'):
@@ -153,7 +153,7 @@ class SystemMonitor:
         try:
             version_file = pathlib.Path(self.repo_path) / "VERSION"
             if version_file.exists():
-                info["version"] = read_text(str(version_file)).strip()
+                info["version"] = read_text(version_file).strip()
             else:
                 info["version"] = "unknown"
         except Exception as e:

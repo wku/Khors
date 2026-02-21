@@ -211,7 +211,7 @@ def get_git_info(repo_dir: pathlib.Path) -> tuple[str, str]:
 # ---------------------------------------------------------------------------
 
 def sanitize_task_for_event(
-    task: Dict[str, Any], drive_logs: pathlib.Path, threshold: int = 4000,
+    task: Dict[str, Any], drive_logs: Optional[pathlib.Path] = None, threshold: int = 4000,
 ) -> Dict[str, Any]:
     """Sanitize task dict for event logging: truncate large text, strip base64 images, persist full text."""
     try:
@@ -238,15 +238,16 @@ def sanitize_task_for_event(
         if text_len > threshold:
             sanitized["text"] = truncate_for_log(text, threshold)
             sanitized["text_truncated"] = True
-            try:
-                task_id = task.get("id")
-                filename = f"task_{task_id}.txt" if task_id else f"task_{text_hash[:12]}.txt"
-                full_path = drive_logs / "tasks" / filename
-                write_text(full_path, text)
-                sanitized["text_full_path"] = f"tasks/{filename}"
-            except Exception:
-                log.debug("Failed to persist full task text to Drive during sanitization", exc_info=True)
-                pass
+            if drive_logs is not None:
+                try:
+                    task_id = task.get("id")
+                    filename = f"task_{task_id}.txt" if task_id else f"task_{text_hash[:12]}.txt"
+                    full_path = drive_logs / "tasks" / filename
+                    write_text(full_path, text)
+                    sanitized["text_full_path"] = f"tasks/{filename}"
+                except Exception:
+                    log.debug("Failed to persist full task text to Drive during sanitization", exc_info=True)
+                    pass
         else:
             sanitized["text_truncated"] = False
 
