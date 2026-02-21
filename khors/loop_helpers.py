@@ -140,29 +140,28 @@ def setup_dynamic_tools(tools_registry, tool_schemas, messages):
     tools_registry.override_handler("list_available_tools", _handle_list_tools)
     tools_registry.override_handler("enable_tools", _handle_enable_tools)
 
-    non_core_count = len(tools_registry.list_non_core_tools())
+    non_core = tools_registry.list_non_core_tools()
+    non_core_count = len(non_core)
     if non_core_count > 0:
+        names = ", ".join(f"`{t['name']}`" for t in non_core if t["name"] not in ("list_available_tools", "enable_tools"))
+        prompt_addition = (
+            f"\n\nNote: You have {len(tool_schemas)} core tools loaded. "
+            f"Additional inactive tools: {names} "
+            f"(use `enable_tools(tools=\"...\")` to activate their schemas). "
+            f"Core tools cover most tasks. Enable extras only when needed."
+        )
+
         injected = False
         for msg in messages:
             if msg.get("role") == "system" and isinstance(msg.get("content"), str):
-                msg["content"] += (
-                    f"\n\nNote: You have {len(tool_schemas)} core tools loaded. "
-                    f"There are {non_core_count} additional tools available "
-                    f"(use `list_available_tools` to see them, `enable_tools` to activate). "
-                    f"Core tools cover most tasks. Enable extras only when needed."
-                )
+                msg["content"] += prompt_addition
                 injected = True
                 break
         
         if not injected:
             messages.insert(0, {
                 "role": "system",
-                "content": (
-                    f"Note: You have {len(tool_schemas)} core tools loaded. "
-                    f"There are {non_core_count} additional tools available "
-                    f"(use `list_available_tools` to see them, `enable_tools` to activate). "
-                    f"Core tools cover most tasks. Enable extras only when needed."
-                ),
+                "content": prompt_addition.lstrip(),
             })
 
     return tool_schemas, enabled_extra
