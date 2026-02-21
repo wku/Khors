@@ -58,7 +58,7 @@ def run_llm_loop(
     _text_tc_retries = 0
 
     # Setup dynamic tool handlers
-    tool_schemas = tools.get_schemas()
+    tool_schemas = tools.schemas()
     tool_schemas, enabled_extra = setup_dynamic_tools(tools, tool_schemas, messages)
 
     try:
