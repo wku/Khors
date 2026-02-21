@@ -83,10 +83,11 @@ class KhorsAgent:
         
         # Specialized managers
         self.task_manager = TaskManager(
-            repo_path=str(env.repo_dir),
-            drive_path=str(env.drive_root),
+            env=env,
             llm_client=self.llm,
-            memory=self.memory
+            memory=self.memory,
+            tools=self.tools,
+            event_queue=event_queue,
         )
         
         self.system_monitor = SystemMonitor(

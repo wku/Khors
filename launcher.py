@@ -101,6 +101,35 @@ def process_events_loop():
                     fmt=e.get("format", ""),
                     is_progress=bool(e.get("is_progress")),
                 )
+            elif e_type == "schedule_task":
+                st = state.load_state()
+                owner_chat_id = st.get("owner_chat_id")
+                if not owner_chat_id:
+                    log.warning("[EVENT] schedule_task: owner_chat_id not set, dropping")
+                    continue
+                tid = e.get("task_id") or uuid.uuid4().hex[:8]
+                task = {
+                    "id": tid,
+                    "type": "task",
+                    "chat_id": int(owner_chat_id),
+                    "text": e.get("description", ""),
+                    "_depth": e.get("depth", 0),
+                }
+                if e.get("context"):
+                    task["context"] = e["context"]
+                if e.get("parent_task_id"):
+                    task["parent_task_id"] = e["parent_task_id"]
+                queue.enqueue_task(task)
+                queue.persist_queue_snapshot(reason="schedule_task_event")
+                log.info(f"[EVENT] schedule_task enqueued tid={tid} desc={str(e.get('description',''))[:60]}")
+            elif e_type == "cancel_task":
+                task_id = e.get("task_id", "")
+                if task_id:
+                    queue.cancel_task_by_id(task_id)
+                    log.info(f"[EVENT] cancel_task tid={task_id}")
+            elif e_type == "review_request":
+                queue.queue_review_task(reason=e.get("reason", "agent_request"), force=True)
+                log.info(f"[EVENT] review_request reason={e.get('reason','')}")
             elif e_type:
                 log.info(f"[EVENT] {e_type} task_id={e.get('task_id','')}")
         except _queue.Empty:

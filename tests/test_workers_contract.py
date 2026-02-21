@@ -97,3 +97,56 @@ class TestSanitizeTaskForEvent:
         result = sanitize_task_for_event(task)
         assert result.get("text_truncated") is True
         assert "text_full_path" not in result
+
+
+class TestTaskManagerPaths:
+
+    def test_no_fstring_paths_in_task_manager(self):
+        src = inspect.getsource(importlib.import_module("khors.task_manager"))
+        assert 'f"{self.drive_path}' not in src, (
+            "task_manager.py must not use f-string paths. "
+            "append_jsonl() requires pathlib.Path, not str."
+        )
+
+    def test_add_usage_not_called_with_one_arg(self):
+        src = inspect.getsource(importlib.import_module("khors.task_manager"))
+        assert 'add_usage(response["usage"])' not in src, (
+            "task_manager.py calls add_usage() with one argument. "
+            "add_usage(total, usage) requires two arguments."
+        )
+
+
+class TestTaskManagerConstructor:
+
+    def test_task_manager_accepts_env_not_repo_path(self):
+        from khors.task_manager import TaskManager
+        params = _get_params(TaskManager.__init__)
+        assert "env" in params, (
+            "TaskManager.__init__() must accept 'env'. "
+            "agent.py passes Env object."
+        )
+        assert "repo_path" not in params, (
+            "TaskManager.__init__() must not have 'repo_path'. "
+            "Use env.repo_dir instead."
+        )
+
+    def test_task_manager_accepts_tools(self):
+        from khors.task_manager import TaskManager
+        params = _get_params(TaskManager.__init__)
+        assert "tools" in params, (
+            "TaskManager.__init__() must accept 'tools' (ToolRegistry). "
+            "Required for run_llm_loop."
+        )
+
+    def test_run_llm_loop_called_with_llm_not_llm_client(self):
+        src = inspect.getsource(importlib.import_module("khors.task_manager"))
+        assert "llm_client=self.llm_client" not in src, (
+            "task_manager.py must call run_llm_loop with llm=, not llm_client=."
+        )
+
+    def test_build_llm_messages_called_with_env(self):
+        src = inspect.getsource(importlib.import_module("khors.task_manager"))
+        assert "env=self.env" in src, (
+            "task_manager.py must call build_llm_messages with env=self.env."
+        )
+
