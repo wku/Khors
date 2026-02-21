@@ -446,7 +446,6 @@ class KhorsAgent:
                     messages=messages,
                     tools=self.tools,
                     llm=self.llm,
-                    drive_logs=drive_logs,
                     emit_progress=self._emit_progress,
                     incoming_messages=self._incoming_messages,
                     task_type=task_type_str,

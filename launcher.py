@@ -85,7 +85,8 @@ def process_events_loop():
                 log.info(f"[EVENT] send_message to chat_id={chat_id} text={str(e.get('text',''))[:80]}")
                 telegram.send_with_budget(
                     chat_id, e.get("text", ""),
-                    parse_mode=e.get("parse_mode", "")
+                    fmt=e.get("format", ""),
+                    is_progress=bool(e.get("is_progress")),
                 )
             elif e_type:
                 log.info(f"[EVENT] {e_type} task_id={e.get('task_id','')}")
