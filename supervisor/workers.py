@@ -32,6 +32,7 @@ from supervisor.telegram import send_with_budget
 # Default to fork on Linux, spawn elsewhere if needed, but standard multiprocessing usually works fine in Docker.
 _WORKER_START_METHOD = "fork" if sys.platform.startswith("linux") else "spawn"
 _SPAWN_GRACE_SEC = 15.0
+_CTX = None
 
 
 def _get_ctx():

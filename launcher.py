@@ -130,12 +130,12 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
         return True
 
     if cmd == "/bg_start":
-        state.update_state(evolution_mode_enabled=True)
+        st = load_state(); st["evolution_mode_enabled"] = True; save_state(st)
         tg_client.send_message(chat_id, "🧠 Фоновое сознание активировано.")
         return True
 
     if cmd == "/bg_stop":
-        state.update_state(evolution_mode_enabled=False)
+        st = load_state(); st["evolution_mode_enabled"] = False; save_state(st)
         tg_client.send_message(chat_id, "💤 Фоновое сознание остановлено.")
         return True
 
