@@ -18,6 +18,7 @@ from supervisor import state, telegram, workers, queue
 from supervisor.state import load_state, save_state, append_jsonl
 from supervisor.telegram import TelegramClient
 from khors.utils import utc_now_iso, write_text, run_cmd
+from khors.tools.extensions import planner_service
 
 # Configuration
 _PROJECT_ROOT = pathlib.Path(__file__).resolve().parent
@@ -282,7 +283,9 @@ def main():
         total_budget_limit=TOTAL_BUDGET
     )
 
-    # 3. Set Bot Commands
+    # 2.5 Start Planner Service
+    planner_service.start_planner_service()
+
     log.info("Setting bot commands...")
     commands = [
         {"command": "status", "description": "Статус, бюджет и версия"},
