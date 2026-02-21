@@ -65,8 +65,8 @@ def run_llm_loop(
         for round_idx in range(1, max_rounds + 1):
             # --- Context Management ---
             # Compact tool history if it gets too long
-            messages = compact_tool_history(messages, max_tool_results=15)
-            messages = compact_tool_history_llm(messages, max_tokens=100000)
+            messages = compact_tool_history(messages, keep_recent=15)
+            messages = compact_tool_history_llm(messages, keep_recent=6)
 
             # --- Owner Interrupts ---
             if incoming_messages:
