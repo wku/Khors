@@ -11,13 +11,47 @@ from khors.utils import safe_relpath
 
 log = logging.getLogger(__name__)
 
-def _resolve_safe_path(ctx: ToolContext, path: str) -> Optional[Path]:
+def _assert_write_permission(ctx: ToolContext, path: Path) -> None:
+    """Ensure bots cannot overwrite core engine files."""
+    try:
+        rel = path.relative_to(ctx.repo_dir)
+        parts = rel.parts
+        
+        if not parts:
+            return
+            
+        # Core is khors/ except khors/tools/extensions/
+        is_khors_core = (
+            parts[0] == "khors" and 
+            not (len(parts) >= 3 and parts[1] == "tools" and parts[2] == "extensions")
+        )
+        
+        # supervisor/ and launcher.py are also core
+        is_supervisor = parts[0] == "supervisor"
+        is_launcher = parts[0] == "launcher.py"
+        
+        if is_khors_core or is_supervisor or is_launcher:
+            raise PermissionError(
+                f"Access denied: modifying core file '{rel}' is disabled for safety. "
+                "Use 'khors/tools/extensions/' for new tools."
+            )
+    except ValueError:
+        # Not relative to repo_dir (e.g., drive_root or absolute path outside). Let it pass.
+        pass
+
+def _resolve_safe_path(ctx: ToolContext, path: str, require_write: bool = False) -> Optional[Path]:
     """Resolve path prioritizing repo_dir, fallback to drive_root."""
     repo_target = (ctx.repo_dir / safe_relpath(path)).resolve()
+    
+    if require_write:
+        _assert_write_permission(ctx, repo_target)
+        
     if repo_target.exists():
         return repo_target
     drive_target = (ctx.drive_root / safe_relpath(path)).resolve()
     if drive_target.exists():
+        if require_write:
+             _assert_write_permission(ctx, drive_target)
         return drive_target
     
     # If it doesn't exist, default to repo_dir for writing
@@ -42,7 +76,10 @@ def _read_file(ctx: ToolContext, path: str, start_line: Optional[int] = None, en
         return f"⚠️ Error reading file: {e}"
 
 def _write_file(ctx: ToolContext, path: str, content: str) -> str:
-    target = _resolve_safe_path(ctx, path)
+    try:
+        target = _resolve_safe_path(ctx, path, require_write=True)
+    except PermissionError as pe:
+        return str(pe)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_text(content, encoding="utf-8")
@@ -51,7 +88,10 @@ def _write_file(ctx: ToolContext, path: str, content: str) -> str:
         return f"⚠️ Error writing file: {e}"
 
 def _edit_file(ctx: ToolContext, path: str, old_text: str, new_text: str) -> str:
-    target = _resolve_safe_path(ctx, path)
+    try:
+        target = _resolve_safe_path(ctx, path, require_write=True)
+    except PermissionError as pe:
+        return str(pe)
     if not target.exists():
         return f"⚠️ Error: File {path} does not exist."
     try:
@@ -65,7 +105,10 @@ def _edit_file(ctx: ToolContext, path: str, old_text: str, new_text: str) -> str
         return f"⚠️ Error editing file: {e}"
 
 def _edit_file_by_lines(ctx: ToolContext, path: str, start_line: int, end_line: int, new_content: str) -> str:
-    target = _resolve_safe_path(ctx, path)
+    try:
+        target = _resolve_safe_path(ctx, path, require_write=True)
+    except PermissionError as pe:
+        return str(pe)
     if not target.exists():
         return f"⚠️ Error: File {path} does not exist."
     try:
@@ -83,7 +126,10 @@ def _edit_file_by_lines(ctx: ToolContext, path: str, start_line: int, end_line: 
         return f"⚠️ Error editing lines: {e}"
 
 def _multi_edit_file(ctx: ToolContext, path: str, edits: List[Dict[str, str]]) -> str:
-    target = _resolve_safe_path(ctx, path)
+    try:
+        target = _resolve_safe_path(ctx, path, require_write=True)
+    except PermissionError as pe:
+        return str(pe)
     if not target.exists():
         return f"⚠️ Error: File {path} does not exist."
     try:
@@ -106,7 +152,10 @@ def _multi_edit_file(ctx: ToolContext, path: str, edits: List[Dict[str, str]]) -
         return f"⚠️ Error applying multi-edits: {e}"
 
 def _delete_file(ctx: ToolContext, path: str, recursive: bool = False) -> str:
-    target = _resolve_safe_path(ctx, path)
+    try:
+        target = _resolve_safe_path(ctx, path, require_write=True)
+    except PermissionError as pe:
+        return str(pe)
     if not target.exists():
         return f"⚠️ Error: Path {path} does not exist."
     try:
@@ -125,8 +174,12 @@ def _delete_file(ctx: ToolContext, path: str, recursive: bool = False) -> str:
         return f"⚠️ Error deleting: {e}"
 
 def _move_file(ctx: ToolContext, source: str, destination: str) -> str:
-    src = _resolve_safe_path(ctx, source)
-    dst = (ctx.repo_dir / safe_relpath(destination)).resolve()
+    try:
+        src = _resolve_safe_path(ctx, source, require_write=True)
+        dst = _resolve_safe_path(ctx, destination, require_write=True)
+    except PermissionError as pe:
+        return str(pe)
+        
     if not src.exists():
         return f"⚠️ Error: Source {source} does not exist."
     try:
