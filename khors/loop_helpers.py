@@ -73,7 +73,9 @@ def maybe_inject_self_check(
 ) -> None:
     """Inject a soft self-check reminder every REMINDER_INTERVAL rounds."""
     REMINDER_INTERVAL = 50
-    if round_idx <= 1 or round_idx % REMINDER_INTERVAL != 0:
+    if round_idx > 1 and max_rounds - round_idx == 3:
+        pass # Force evaluation of warning
+    elif round_idx <= 1 or round_idx % REMINDER_INTERVAL != 0:
         return
     ctx_tokens = sum(
         estimate_tokens(str(m.get("content", "")))
@@ -100,6 +102,17 @@ def maybe_inject_self_check(
     )
     messages.append({"role": "system", "content": reminder})
     emit_progress(f"🔄 Checkpoint {checkpoint_num} at round {round_idx}: ~{ctx_tokens} tokens, ${task_cost:.2f} spent")
+
+    # Hard timeout warning
+    if max_rounds - round_idx == 3:
+        warning = (
+            f"⚠️ SYSTEM WARNING: You have only 3 tool-calling rounds left before the hard limit ({max_rounds}) is reached. "
+            f"You MUST immediately use your remaining rounds to summarize your progress and save your current state "
+            f"(e.g., using memory_node_write or updating scratchpad.md). "
+            f"Do not start new complex tasks. Prepare to yield execution so a new task can continue your work cleanly."
+        )
+        messages.append({"role": "system", "content": warning})
+        emit_progress(f"⚠️ Warning: Only 3 rounds left before max_rounds limit ({max_rounds}).")
 
 
 def setup_dynamic_tools(tools_registry, tool_schemas, messages):
