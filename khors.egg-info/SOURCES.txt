@@ -54,9 +54,14 @@ khors/tools/thinking.py
 khors/tools/tool_discovery.py
 khors/tools/vision.py
 khors/tools/webapi.py
+khors/tools/extensions/__init__.py
+khors/tools/extensions/memory_nodes.py
+khors/tools/extensions/planner.py
+khors/tools/extensions/planner_service.py
 tests/test_basic.py
 tests/test_environment_setup.py
 tests/test_file_tools.py
+tests/test_launcher_integration.py
 tests/test_llm_cleaning.py
 tests/test_signatures.py
 tests/test_workers_contract.py

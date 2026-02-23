@@ -133,11 +133,18 @@ def setup_dynamic_tools(tools_registry, tool_schemas, messages):
     def _handle_enable_tools(ctx=None, tools: str = "", **kwargs):
         names = [n.strip() for n in tools.split(",") if n.strip()]
         enabled, not_found = [], []
+        active_names = {s.get("function", {}).get("name") for s in tool_schemas if isinstance(s, dict)}
+        
         for name in names:
+            if name in active_names and name not in enabled_extra:
+                enabled.append(f"{name} (already active core tool)")
+                continue
+
             schema = tools_registry.get_schema_by_name(name)
             if schema and name not in enabled_extra:
                 tool_schemas.append(schema)
                 enabled_extra.add(name)
+                active_names.add(name)
                 enabled.append(name)
             elif name in enabled_extra:
                 enabled.append(f"{name} (already active)")
