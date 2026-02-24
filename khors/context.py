@@ -308,6 +308,16 @@ def build_llm_messages(
         env.repo_path("prompts/SYSTEM.md"),
         fallback="You are Khors. Your base prompt could not be loaded."
     )
+    
+    # --- Conscious Wakeup Logic ---
+    is_wakeup = task.get("is_wakeup") or (isinstance(task.get("context"), dict) and task["context"].get("is_wakeup"))
+    if is_wakeup:
+        wakeup_prompt = _safe_read(env.repo_path("prompts/WAKEUP.md"))
+        if wakeup_prompt:
+            base_prompt += f"\n\n[WAKEUP PROTOCOL ACTIVATED]\n{wakeup_prompt}"
+        else:
+            base_prompt += "\n\n[WAKEUP] Ты проснулся по таймеру. Проведи аудит систем."
+
     bible_md = _safe_read(env.repo_path("BIBLE.md"))
     readme_md = _safe_read(env.repo_path("README.md"))
     state_json = _safe_read(env.drive_path("state/state.json"), fallback="{}")

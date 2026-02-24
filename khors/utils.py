@@ -45,12 +45,14 @@ def read_text(path: pathlib.Path) -> str:
 
 
 def write_text(path: pathlib.Path, content: str) -> None:
+    path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(content, encoding="utf-8")
 
 
 def append_jsonl(path: pathlib.Path, obj: Dict[str, Any]) -> None:
     """Append a JSON object as a line to a JSONL file (concurrent-safe)."""
+    path = pathlib.Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     line = json.dumps(obj, ensure_ascii=False)
     data = (line + "\n").encode("utf-8")

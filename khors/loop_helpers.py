@@ -281,7 +281,9 @@ def call_llm_with_retry(
                 })
 
                 if attempt < max_retries - 1:
-                    time.sleep(2 ** attempt)
+                    # Паузы: 2, 4, 8, 16, 30 секунд
+                    sleep_time = min(2 ** (attempt + 1), 30)
+                    time.sleep(sleep_time)
                     continue
                 return None, cost
 
@@ -310,7 +312,9 @@ def call_llm_with_retry(
                 "model": model, "error": repr(e),
             })
             if attempt < max_retries - 1:
-                time.sleep(min(2 ** attempt * 2, 30))
+                # Паузы: 2, 4, 8, 16, 30 секунд
+                sleep_time = min(2 ** (attempt + 1), 30)
+                time.sleep(sleep_time)
 
     return None, 0.0
 

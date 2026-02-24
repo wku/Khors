@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional
 
 from khors.tools.registry import ToolContext, ToolEntry
 
-def _sequential_thinking(ctx: ToolContext, thought: str, thought_number: int, total_thoughts: int, next_thought_needed: bool, is_revision: bool = False, revises_thought: Optional[int] = None, branch_from_thought: Optional[int] = None, branch_id: Optional[str] = None, needs_more_thoughts: Optional[bool] = None) -> str:
+def _sequential_thinking(ctx: ToolContext, thought: str, thought_number: int, total_thoughts: int, next_thought_needed: bool = True, is_revision: bool = False, revises_thought: Optional[int] = None, branch_from_thought: Optional[int] = None, branch_id: Optional[str] = None, needs_more_thoughts: Optional[bool] = None) -> str:
     output = [
         f"THOUGHT {thought_number}/{total_thoughts}",
         f"Content: {thought}"

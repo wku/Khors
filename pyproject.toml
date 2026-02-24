@@ -27,7 +27,7 @@ dev = ["pytest>=7.0.0"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
-test_patterns = ["test_*.py", "test_*"]
+python_files = ["test_*.py", "test_*"]
 
 [tool.ruff]
 select = ["E", "F", "W", "I"]

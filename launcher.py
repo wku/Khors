@@ -108,6 +108,20 @@ def process_events_loop():
                 queue.enqueue_task(task)
                 queue.persist_queue_snapshot(reason="schedule_task_event")
                 log.info(f"[EVENT] schedule_task enqueued tid={tid} desc={str(e.get('description',''))[:60]}")
+            elif e_type == "new_task":
+                task = e.get("task")
+                if task and isinstance(task, dict):
+                    # Ensure chat_id is present, fallback to owner
+                    if not task.get("chat_id"):
+                        st = state.load_state()
+                        task["chat_id"] = st.get("owner_chat_id")
+                    
+                    if task.get("chat_id"):
+                        queue.enqueue_task(task)
+                        queue.persist_queue_snapshot(reason="new_task_event")
+                        log.info(f"[EVENT] new_task enqueued tid={task.get('id')} desc={str(task.get('text', task.get('description', '')))[:60]}")
+                    else:
+                        log.warning("[EVENT] new_task dropped: no chat_id and no owner_chat_id")
             elif e_type == "cancel_task":
                 task_id = e.get("task_id", "")
                 if task_id:
@@ -150,10 +164,9 @@ def handle_system_command(chat_id: int, text: str, tg_client: TelegramClient, re
     st = load_state()
     
     if cmd == "/restart":
-        tg_client.send_message(chat_id, "🔄 Перезапуск системы инициирован...")
-        # Create a lock file for supervisor to know it should restart
-        write_text(str(drive_root / "state" / "restart.lock"), utc_now_iso())
-        sys.exit(0)
+        tg_client.send_message(chat_id, "🔄 Выполняется горячая перезагрузка (execv)...")
+        workers.kill_workers()
+        os.execv(sys.executable, [sys.executable] + sys.argv)
         return True
 
     if cmd == "/cancel":
@@ -283,8 +296,6 @@ def main():
         total_budget_limit=TOTAL_BUDGET
     )
 
-    # 2.5 Start Planner Service
-    planner_service.start_planner_service()
 
     log.info("Setting bot commands...")
     commands = [
@@ -312,6 +323,15 @@ def main():
         "ts": utc_now_iso(),
         "type": "launcher_start"
     })
+
+    # Start background services
+    try:
+        from khors.tools.extensions import planner_service
+        planner_service.start_planner_service()
+    except Exception as e:
+        print(f"Failed to start planner service: {e}")
+
+    # Start workers
     workers.spawn_workers(n=0)
     threading.Thread(target=process_events_loop, daemon=True).start()
     
@@ -320,7 +340,8 @@ def main():
 
     # 5. Main Loop
     log.info("Khors Supervisor started. Entering main loop.")
-    offset = 0
+    _st = state.load_state()
+    offset = _st.get("tg_offset", 0)
     while True:
         try:
             queue.enforce_task_timeouts()
@@ -336,6 +357,10 @@ def main():
             updates = tg_client.get_updates(offset=offset, timeout=10)
             for u in updates:
                 offset = u["update_id"] + 1
+                # Сохраняем offset в состояние немедленно
+                _st = state.load_state()
+                _st["tg_offset"] = offset
+                state.save_state(_st)
                 msg = u.get("message")
                 if not msg:
                     continue

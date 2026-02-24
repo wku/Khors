@@ -42,7 +42,7 @@ khors/tools/core.py
 khors/tools/evolution_stats.py
 khors/tools/files.py
 khors/tools/git.py
-khors/tools/github.py
+khors/tools/github_gh.py
 khors/tools/health.py
 khors/tools/knowledge.py
 khors/tools/news_agent_tool.py
@@ -55,11 +55,13 @@ khors/tools/tool_discovery.py
 khors/tools/vision.py
 khors/tools/webapi.py
 khors/tools/extensions/__init__.py
+khors/tools/extensions/github_api.py
 khors/tools/extensions/memory_nodes.py
 khors/tools/extensions/planner.py
 khors/tools/extensions/planner_service.py
 tests/test_basic.py
 tests/test_environment_setup.py
+tests/test_evolution_v4.py
 tests/test_file_tools.py
 tests/test_launcher_integration.py
 tests/test_llm_cleaning.py

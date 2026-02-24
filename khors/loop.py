@@ -32,7 +32,7 @@ def run_llm_loop(
     tools: ToolRegistry,
     model: str = "",
     max_rounds: int = 50,
-    max_retries: int = 3,
+    max_retries: int = 5,
     budget_remaining_usd: Optional[float] = None,
     drive_root: Optional[pathlib.Path] = None,
     task_id: str = "",
