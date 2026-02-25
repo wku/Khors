@@ -117,7 +117,8 @@ def check_timers():
                     for line in f:
                         try:
                             t = json.loads(line)
-                            existing_tasks.append(t)
+                            if isinstance(t, dict):
+                                existing_tasks.append(t)
                         except:
                             continue
 
@@ -154,12 +155,14 @@ def check_timers():
                     log_event(f"Timer {timer_id} ({t_type}) triggered")
                     
                     task_id = f"autoplan-{timer_id}-{int(now_ts)}"
+                    description = f"Autonomous trigger: {timer_id} ({config.get('description', '')})"
                     emit_supervisor_event({
                         "type": "new_task",
                         "task": {
                             "id": task_id,
                             "type": "evolution",
-                            "description": f"Autonomous trigger: {timer_id} ({config.get('description', '')})",
+                            "description": description,
+                            "text": description,
                             "context": {"is_wakeup": True},
                             "is_wakeup": True
                         }
